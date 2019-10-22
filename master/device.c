@@ -39,9 +39,7 @@
 #include <linux/if_ether.h>
 #include <linux/netdevice.h>
 #include <linux/jiffies.h>
-#if LINUX_VERSION_CODE > KERNEL_VERSION(4, 14, 0)
 #include <linux/timekeeping32.h>
-#endif
 
 #include "device.h"
 #include "master.h"
