@@ -256,7 +256,11 @@ int eccdev_mmap(
  *
  * \return Zero on success, otherwise a negative error code.
  */
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4, 16, 0)
+static vm_fault_t eccdev_vma_fault(
+#else
 static int eccdev_vma_fault(
+#endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 0)
         struct vm_area_struct *vma, /**< Virtual memory area. */
 #endif
