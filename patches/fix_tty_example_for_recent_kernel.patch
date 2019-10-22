@@ -1,0 +1,171 @@
+From: Michael Graichen <michael.graichem@hotmail.com>
+
+tty: Fix tty example on kernel 4.15
+
+tty/module.c added legacy timer emulation and struct tty_port
+example/tty/tty.c changed cyclic_task arguments
+example/tty/serial.c fixed "Received 0 bytes" issue on Port X1 while loading the module
+
+--- a/tty/module.c
++++ b/tty/module.c
+@@ -95,6 +95,14 @@
+     .c_cc = INIT_C_CC,
+ };
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
++typedef struct legacy_timer_emu {
++	struct timer_list t;
++	void (*function)(unsigned long);
++	unsigned long data;
++};
++#endif
++
+ struct ec_tty {
+     int minor;
+     struct device *dev;
+@@ -107,8 +115,15 @@
+     uint8_t rx_buffer[EC_TTY_RX_BUFFER_SIZE];
+     unsigned int rx_read_idx;
+     unsigned int rx_write_idx;
+-
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0))
++    struct tty_port port;
++#endif
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
++    struct legacy_timer_emu legacy_timer;
++#else
+     struct timer_list timer;
++#endif
+     struct tty_struct *tty;
+     unsigned int open_count;
+     struct semaphore sem;
+@@ -118,6 +133,14 @@
+ };
+ 
+ static const struct tty_operations ec_tty_ops; // see below
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
++static void legacy_timer_emu_func(struct timer_list *t)
++{
++	struct legacy_timer_emu *lt = from_timer(lt, t, t);
++	lt->function(lt->data);
++}
++#endif
+ 
+ /*****************************************************************************/
+ 
+@@ -200,12 +223,22 @@
+     t->wakeup = 0;
+     t->rx_read_idx = 0;
+     t->rx_write_idx = 0;
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
++    timer_setup(&t->legacy_timer.t, legacy_timer_emu_func, 0);
++#else
+     init_timer(&t->timer);
++#endif    
+     t->tty = NULL;
++
+     t->open_count = 0;
+     sema_init(&t->sem, 1);
+     t->ops = *ops;
+     t->cb_data = cb_data;
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 7, 0))
++    tty_port_init(&t->port);
++    tty_port_link_device(&t->port, tty_driver, t->minor);
++#endif
+ 
+     t->dev = tty_register_device(tty_driver, t->minor, NULL);
+     if (IS_ERR(t->dev)) {
+@@ -237,10 +270,17 @@
+         return ret;
+     }
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
++    t->legacy_timer.function = ec_tty_wakeup;
++    t->legacy_timer.data = (unsigned long) t;
++    t->legacy_timer.t.expires = jiffies + 10;
++    add_timer(&t->legacy_timer.t);
++#else
+     t->timer.function = ec_tty_wakeup;
+     t->timer.data = (unsigned long) t;
+     t->timer.expires = jiffies + 10;
+     add_timer(&t->timer);
++#endif
+     return 0;
+ }
+ 
+@@ -248,7 +288,11 @@
+ 
+ void ec_tty_clear(ec_tty_t *tty)
+ {
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
++    del_timer_sync(&tty->legacy_timer.t);
++#else
+     del_timer_sync(&tty->timer);
++#endif
+     tty_unregister_device(tty_driver, tty->minor);
+ }
+ 
+@@ -374,8 +418,13 @@
+         }
+     }
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
++    tty->legacy_timer.t.expires += 1;
++    add_timer(&tty->legacy_timer.t);
++#else
+     tty->timer.expires += 1;
+     add_timer(&tty->timer);
++#endif
+ }
+ 
+ /******************************************************************************
+
+--- a/examples/tty/tty.c
++++ b/examples/tty/tty.c
+@@ -116,8 +116,13 @@
+ 
+ /*****************************************************************************/
+ 
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
++static void cyclic_task(struct timer_list *data)
++#else
+ void cyclic_task(unsigned long data)
+-{
++#endif
++{
++
+     // receive process data
+     down(&master_sem);
+     ecrt_master_receive(master);
+@@ -214,8 +219,12 @@
+     domain1_pd = ecrt_domain_data(domain1);
+ 
+     printk(KERN_INFO PFX "Starting cyclic sample thread.\n");
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
++     timer_setup(&timer, cyclic_task, 0);
++#else
+     init_timer(&timer);
+     timer.function = cyclic_task;
++#endif
+     timer.expires = jiffies + 10;
+     add_timer(&timer);
+ 
+--- a/examples/tty/serial.c
++++ b/examples/tty/serial.c
+@@ -573,8 +573,10 @@
+                 printk(KERN_INFO PFX "%s: Received %u bytes.\n",
+                         port->name, rx_data_size);
+ #endif
+-                ectty_rx_data(port->tty, rx_data, rx_data_size);
+-                port->rx_accepted_toggle = !port->rx_accepted_toggle;
++                if (rx_data_size) {
++	                ectty_rx_data(port->tty, rx_data, rx_data_size);
++	                port->rx_accepted_toggle = !port->rx_accepted_toggle;
++                }   
+             }
+ 
+             port->control =
+ 
