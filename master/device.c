@@ -39,6 +39,9 @@
 #include <linux/if_ether.h>
 #include <linux/netdevice.h>
 #include <linux/jiffies.h>
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4, 14, 0)
+#include <linux/timekeeping32.h>
+#endif
 
 #include "device.h"
 #include "master.h"
@@ -324,10 +327,10 @@ static void pcap_record(
         if (unlikely(reqd <= available)) {
             pcaprec_hdr_t *pcaphdr;
             struct timeval t;
-          
+
             // update curr data pointer
             device->master->pcap_curr_data = curr_data + reqd;
-            
+
             // fill in pcap frame header info
             pcaphdr = curr_data;
 #ifdef EC_RTDM
@@ -340,7 +343,7 @@ static void pcap_record(
             pcaphdr->incl_len = size;
             pcaphdr->orig_len = size;
             curr_data += sizeof(pcaprec_hdr_t);
-          
+
             // copy frame
             memcpy(curr_data, data, size);
         }
