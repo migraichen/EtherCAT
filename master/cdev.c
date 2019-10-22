@@ -62,7 +62,11 @@ static int eccdev_mmap(struct file *, struct vm_area_struct *);
 #define PAGE_FAULT_VERSION KERNEL_VERSION(2, 6, 23)
 
 #if LINUX_VERSION_CODE >= PAGE_FAULT_VERSION
+#if LINUX_VERSION_CODE > KERNEL_VERSION(4, 16, 0)
+static vm_fault_t eccdev_vma_fault(
+#else
 static int eccdev_vma_fault(
+#endif
 #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 11, 0)
         struct vm_area_struct *,
 #endif
