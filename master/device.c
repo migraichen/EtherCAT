@@ -39,7 +39,6 @@
 #include <linux/if_ether.h>
 #include <linux/netdevice.h>
 #include <linux/jiffies.h>
-#include <linux/timekeeping32.h>
 
 #include "device.h"
 #include "master.h"
@@ -521,6 +520,14 @@ void ec_device_debug_ring_print(
  * of received data and status changes of the network device has to be
  * done by the master calling the ISR "manually".
  */
+void do_gettimeofday(struct timeval *tv)
+{
+    struct timespec64 ts;
+    ktime_get_real_ts64(&ts);
+    tv->tv_sec = ts.tv_sec;
+    tv->tv_usec = ts.tv_nsec/1000;
+}
+
 void ec_device_poll(
         ec_device_t *device /**< EtherCAT device */
         )

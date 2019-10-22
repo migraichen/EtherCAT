@@ -170,6 +170,7 @@ void ec_device_detach(ec_device_t *);
 int ec_device_open(ec_device_t *);
 int ec_device_close(ec_device_t *);
 
+void do_gettimeofday(struct timeval *tv);
 void ec_device_poll(ec_device_t *);
 uint8_t *ec_device_tx_data(ec_device_t *);
 void ec_device_send(ec_device_t *, size_t);

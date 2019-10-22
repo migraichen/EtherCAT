@@ -211,7 +211,7 @@ int ec_tty_init(ec_tty_t *t, int minor,
     timer_setup(&t->timer, ec_tty_wakeup, 0);
 #else
     init_timer(&t->timer);
-#endif    
+#endif
     t->tty = NULL;
 
     t->open_count = 0;
@@ -591,8 +591,7 @@ static int ec_tty_ioctl(struct tty_struct *tty,
 
     switch (cmd) {
         case TIOCGSERIAL:
-            if (access_ok(VERIFY_WRITE,
-                        (void *) arg, sizeof(struct serial_struct))) {
+            if (access_ok((void *) arg, sizeof(struct serial_struct))) {
                 ret = ec_tty_get_serial_info(t, (struct serial_struct *) arg);
             } else {
                 ret = -EFAULT;
