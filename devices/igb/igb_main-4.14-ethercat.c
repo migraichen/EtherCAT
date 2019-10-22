@@ -3298,7 +3298,8 @@ static int __igb_open(struct net_device *netdev, bool resuming)
 
 	if (adapter->ecdev) {
 		ecdev_set_link(adapter->ecdev, 0);
-	} else {
+	}
+	else {
 		netif_carrier_off(netdev);
 	}
 
@@ -7093,8 +7094,8 @@ static bool igb_clean_tx_irq(struct igb_q_vector *q_vector, int napi_budget)
 		total_bytes += tx_buffer->bytecount;
 		total_packets += tx_buffer->gso_segs;
 
-		/* free the skb */
 		if (!adapter->ecdev) {
+			/* free the skb */
 			napi_consume_skb(tx_buffer->skb, napi_budget);
 		}
 
@@ -7652,24 +7653,25 @@ static int igb_clean_rx_irq(struct igb_q_vector *q_vector, const int budget)
 
 		/* retrieve a buffer from the ring */
 		if (adapter->ecdev) {
-			unsigned char *va =
-				page_address(rx_buffer->page) + rx_buffer->page_offset;
+			unsigned char *va = page_address(rx_buffer->page) + rx_buffer->page_offset;
+			unsigned int size = le16_to_cpu(rx_desc->wb.upper.length);
 			ecdev_receive(adapter->ecdev, va, size);
- 		} else {
-			if (skb)
-				igb_add_rx_frag(rx_ring, rx_buffer, skb, size);
-			else if (ring_uses_build_skb(rx_ring))
-				skb = igb_build_skb(rx_ring, rx_buffer, rx_desc, size);
-			else
-				skb = igb_construct_skb(rx_ring, rx_buffer,
-							rx_desc, size);
+			adapter->ec_watchdog_jiffies = jiffies;
 
-			/* exit if we failed to retrieve a buffer */
-			if (!skb) {
-				rx_ring->rx_stats.alloc_failed++;
-				rx_buffer->pagecnt_bias++;
-				break;
-			}
+		}
+		else if (skb)
+			igb_add_rx_frag(rx_ring, rx_buffer, skb, size);
+		else if (ring_uses_build_skb(rx_ring))
+			skb = igb_build_skb(rx_ring, rx_buffer, rx_desc, size);
+		else
+			skb = igb_construct_skb(rx_ring, rx_buffer,
+						rx_desc, size);
+
+		/* exit if we failed to retrieve a buffer */
+		if (!adapter->ecdev && !skb) {
+			rx_ring->rx_stats.alloc_failed++;
+			rx_buffer->pagecnt_bias++;
+			break;
 		}
 
 		igb_put_rx_buffer(rx_ring, rx_buffer);
@@ -8059,9 +8061,7 @@ static int __igb_shutdown(struct pci_dev *pdev, bool *enable_wake,
 	struct e1000_hw *hw = &adapter->hw;
 	u32 ctrl, rctl, status;
 	u32 wufc = runtime ? E1000_WUFC_LNKC : adapter->wol;
-#ifdef CONFIG_PM
-	int retval = 0;
-#endif
+	bool wake;
 
 	rtnl_lock();
 	netif_device_detach(netdev);
@@ -8073,12 +8073,6 @@ static int __igb_shutdown(struct pci_dev *pdev, bool *enable_wake,
 
 	igb_clear_interrupt_scheme(adapter);
 	rtnl_unlock();
-
-#ifdef CONFIG_PM
-	retval = pci_save_state(pdev);
-	if (retval)
-		return retval;
-#endif
 
 	status = rd32(E1000_STATUS);
 	if (status & E1000_STATUS_LU)
@@ -8096,10 +8090,6 @@ static int __igb_shutdown(struct pci_dev *pdev, bool *enable_wake,
 		}
 
 		ctrl = rd32(E1000_CTRL);
-		/* advertise wake from D3Cold */
-		#define E1000_CTRL_ADVD3WUC 0x00100000
-		/* phy power management enable */
-		#define E1000_CTRL_EN_PHY_PWR_MGMT 0x00200000
 		ctrl |= E1000_CTRL_ADVD3WUC;
 		wr32(E1000_CTRL, ctrl);
 
@@ -8113,11 +8103,14 @@ static int __igb_shutdown(struct pci_dev *pdev, bool *enable_wake,
 		wr32(E1000_WUFC, 0);
 	}
 
-	*enable_wake = wufc || adapter->en_mng_pt;
-	if (!*enable_wake)
+	wake = wufc || adapter->en_mng_pt;
+	if (!wake)
 		igb_power_down_link(adapter);
 	else
 		igb_power_up_link(adapter);
+
+	if (enable_wake)
+		*enable_wake = wake;
 
 	/* Release control of h/w to f/w.  If f/w is AMT enabled, this
 	 * would have already happened in close and is redundant.
@@ -8161,22 +8154,7 @@ static void igb_deliver_wake_packet(struct net_device *netdev)
 
 static int __maybe_unused igb_suspend(struct device *dev)
 {
-	int retval;
-	bool wake;
-	struct pci_dev *pdev = to_pci_dev(dev);
-
-	retval = __igb_shutdown(pdev, &wake, 0);
-	if (retval)
-		return retval;
-
-	if (wake) {
-		pci_prepare_to_sleep(pdev);
-	} else {
-		pci_wake_from_d3(pdev, false);
-		pci_set_power_state(pdev, PCI_D3hot);
-	}
-
-	return 0;
+	return __igb_shutdown(to_pci_dev(dev), NULL, 0);
 }
 
 static int __maybe_unused igb_resume(struct device *dev)
@@ -8247,22 +8225,7 @@ static int __maybe_unused igb_runtime_idle(struct device *dev)
 
 static int __maybe_unused igb_runtime_suspend(struct device *dev)
 {
-	struct pci_dev *pdev = to_pci_dev(dev);
-	int retval;
-	bool wake;
-
-	retval = __igb_shutdown(pdev, &wake, 1);
-	if (retval)
-		return retval;
-
-	if (wake) {
-		pci_prepare_to_sleep(pdev);
-	} else {
-		pci_wake_from_d3(pdev, false);
-		pci_set_power_state(pdev, PCI_D3hot);
-	}
-
-	return 0;
+	return __igb_shutdown(to_pci_dev(dev), NULL, 1);
 }
 
 static int __maybe_unused igb_runtime_resume(struct device *dev)
@@ -8501,12 +8464,17 @@ static void igb_rar_set_index(struct igb_adapter *adapter, u32 index)
 		if (is_valid_ether_addr(addr))
 			rar_high |= E1000_RAH_AV;
 
-		if (hw->mac.type == e1000_82575)
+		switch (hw->mac.type) {
+		case e1000_82575:
+		case e1000_i210:
 			rar_high |= E1000_RAH_POOL_1 *
 				    adapter->mac_table[index].queue;
-		else
+			break;
+		default:
 			rar_high |= E1000_RAH_POOL_1 <<
 				    adapter->mac_table[index].queue;
+			break;
+		}
 	}
 
 	wr32(E1000_RAL(index), rar_low);

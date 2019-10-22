@@ -1191,7 +1191,8 @@ static void rtl8139_remove_one(struct pci_dev *pdev)
 	if (tp->ecdev) {
 		ecdev_close(tp->ecdev);
 		ecdev_withdraw(tp->ecdev);
-	} else {
+	}
+	else {
 		cancel_delayed_work_sync(&tp->thread);
 		netif_napi_del(&tp->napi);
 
@@ -1779,23 +1780,24 @@ static void rtl8139_tx_timeout_task (struct work_struct *work)
 	if (tp->ecdev) {
 		rtl8139_tx_clear (tp);
 		rtl8139_hw_start (dev);
-	} else {
-		spin_lock_bh(&tp->rx_lock);
-		/* Disable interrupts by clearing the interrupt mask. */
-		RTL_W16 (IntrMask, 0x0000);
-
-		/* Stop a shared interrupt from scavenging while we are. */
-		spin_lock_irq(&tp->lock);
-		rtl8139_tx_clear (tp);
-		spin_unlock_irq(&tp->lock);
-
-		/* ...and finally, reset everything */
-		napi_enable(&tp->napi);
-		rtl8139_hw_start(dev);
-		netif_wake_queue(dev);
-
-		spin_unlock_bh(&tp->rx_lock);
 	}
+	else {
+                spin_lock_bh(&tp->rx_lock);
+                /* Disable interrupts by clearing the interrupt mask. */
+                RTL_W16 (IntrMask, 0x0000);
+
+                /* Stop a shared interrupt from scavenging while we are. */
+                spin_lock_irq(&tp->lock);
+                rtl8139_tx_clear (tp);
+                spin_unlock_irq(&tp->lock);
+
+                /* ...and finally, reset everything */
+                napi_enable(&tp->napi);
+                rtl8139_hw_start(dev);
+                netif_wake_queue(dev);
+
+                spin_unlock_bh(&tp->rx_lock);
+        }
 }
 
 static void rtl8139_tx_timeout (struct net_device *dev)
@@ -2156,21 +2158,20 @@ no_early_rx:
 		}
 
 keep_pkt:
-		/* Malloc up new buffer, compatible with net-2e. */
-		/* Omit the four octet CRC from the length. */
-
 		if (tp->ecdev) {
-			ecdev_receive(tp->ecdev,
-					&rx_ring[ring_offset + 4], pkt_size);
-					dev->stats.rx_bytes += pkt_size;
-					dev->stats.rx_packets++;
-		} else {
+			ecdev_receive(tp->ecdev, &rx_ring[ring_offset + 4], pkt_size);
+		}
+		else {
+			/* Malloc up new buffer, compatible with net-2e. */
+			/* Omit the four octet CRC from the length. */
+
 			skb = napi_alloc_skb(&tp->napi, pkt_size);
 			if (likely(skb)) {
 #if RX_BUF_IDX == 3
 				wrap_copy(skb, rx_ring, ring_offset+4, pkt_size);
 #else
-				skb_copy_to_linear_data (skb, &rx_ring[ring_offset + 4], pkt_size);
+				skb_copy_to_linear_data (skb, &rx_ring[ring_offset + 4],
+						pkt_size);
 #endif
 				skb_put (skb, pkt_size);
 

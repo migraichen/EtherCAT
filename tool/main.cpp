@@ -52,8 +52,11 @@ using namespace std;
 #include "CommandFoeRead.h"
 #include "CommandFoeWrite.h"
 #include "CommandGraph.h"
-#include "CommandIp.h"
+#ifdef EC_EOE
+# include "CommandIp.h"
+#endif
 #include "CommandMaster.h"
+#include "CommandPcap.h"
 #include "CommandPdos.h"
 #include "CommandRegRead.h"
 #include "CommandRegWrite.h"
@@ -315,8 +318,11 @@ int main(int argc, char **argv)
     commandList.push_back(new CommandFoeRead());
     commandList.push_back(new CommandFoeWrite());
     commandList.push_back(new CommandGraph());
+#ifdef EC_EOE
     commandList.push_back(new CommandIp());
+#endif
     commandList.push_back(new CommandMaster());
+    commandList.push_back(new CommandPcap());
     commandList.push_back(new CommandPdos());
     commandList.push_back(new CommandRegRead());
     commandList.push_back(new CommandRegWrite());

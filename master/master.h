@@ -247,10 +247,8 @@ struct ec_master {
     struct list_head sii_images; /**< List of slave SII images. */
 
     u64 app_time; /**< Time of the last ecrt_master_sync() call. */
-    u64 app_start_time; /**< Application start time. */
-    u8 has_app_time; /**< Application time is valid. */
+    u64 dc_ref_time; /**< Common reference timestamp for DC start times. */
     u8 dc_offset_valid; /**< DC slaves have valid system time offsets*/
-
     ec_datagram_t ref_sync_datagram; /**< Datagram used for synchronizing the
                                        reference clock to the master clock. */
     ec_datagram_t sync_datagram; /**< Datagram used for DC drift
@@ -311,6 +309,9 @@ struct ec_master {
 
     unsigned int debug_level; /**< Master debug level. */
     ec_stats_t stats; /**< Cyclic statistics. */
+
+    void *pcap_data; /**< pcap debug output memory pointer */
+    void *pcap_curr_data; /**< pcap debug output current memory pointer */
 
     struct task_struct *thread; /**< Master thread. */
 
@@ -385,8 +386,7 @@ const ec_slave_t *ec_master_find_slave_const(const ec_master_t *, uint16_t,
         uint16_t);
 void ec_master_output_stats(ec_master_t *);
 #ifdef EC_EOE
-void ec_master_clear_eoe_handler_slaves(ec_master_t *);
-void ec_master_clear_eoe_handlers(ec_master_t *);
+void ec_master_clear_eoe_handlers(ec_master_t *, unsigned int);
 #endif
 void ec_master_slaves_not_available(ec_master_t *);
 void ec_master_slaves_available(ec_master_t *);
@@ -412,6 +412,9 @@ int ec_master_eoe_process(ec_master_t *);
 #endif
 #endif
 
+int ec_master_mbox_gateway(ec_master_t *master, uint8_t *data, 
+        size_t *data_size, size_t buff_size);
+
 int ec_master_debug_level(ec_master_t *, unsigned int);
 
 ec_domain_t *ecrt_master_create_domain_err(ec_master_t *);
@@ -435,6 +438,7 @@ extern char *eoe_interfaces[MAX_EOE]; // see module.c
 extern unsigned int eoe_count; // see module.c
 extern bool eoe_autocreate; // see module.c
 #endif
+extern unsigned long pcap_size;  // see module.c
 
 /*****************************************************************************/
 

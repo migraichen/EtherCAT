@@ -978,7 +978,7 @@ static int e1000_init_hw_struct(struct e1000_adapter *adapter,
 static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 {
 	struct net_device *netdev;
-	struct e1000_adapter *adapter;
+	struct e1000_adapter *adapter = NULL;
 	struct e1000_hw *hw;
 
 	static int cards_found = 0;
@@ -988,6 +988,7 @@ static int e1000_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 	u16 tmp = 0;
 	u16 eeprom_apme_mask = E1000_EEPROM_APME;
 	int bars, need_ioport;
+	bool disable_dev = false;
 
 	/* do not allocate ioport bars when not needed */
 	need_ioport = e1000_is_need_ioport(pdev);
@@ -1300,11 +1301,13 @@ err_mdio_ioremap:
 	iounmap(hw->ce4100_gbe_mdio_base_virt);
 	iounmap(hw->hw_addr);
 err_ioremap:
+	disable_dev = !test_and_set_bit(__E1000_DISABLED, &adapter->flags);
 	free_netdev(netdev);
 err_alloc_etherdev:
 	pci_release_selected_regions(pdev, bars);
 err_pci_reg:
-	pci_disable_device(pdev);
+	if (!adapter || disable_dev)
+		pci_disable_device(pdev);
 	return err;
 }
 
@@ -1322,6 +1325,7 @@ static void e1000_remove(struct pci_dev *pdev)
 	struct net_device *netdev = pci_get_drvdata(pdev);
 	struct e1000_adapter *adapter = netdev_priv(netdev);
 	struct e1000_hw *hw = &adapter->hw;
+	bool disable_dev;
 
 	e1000_down_and_stop(adapter);
 	e1000_release_manageability(adapter);
@@ -1345,9 +1349,11 @@ static void e1000_remove(struct pci_dev *pdev)
 		iounmap(hw->flash_address);
 	pci_release_selected_regions(pdev, adapter->bars);
 
+	disable_dev = !test_and_set_bit(__E1000_DISABLED, &adapter->flags);
 	free_netdev(netdev);
 
-	pci_disable_device(pdev);
+	if (disable_dev)
+		pci_disable_device(pdev);
 }
 
 /**
@@ -1916,7 +1922,7 @@ static void e1000_configure_rx(struct e1000_adapter *adapter)
 	struct e1000_hw *hw = &adapter->hw;
 	u32 rdlen, rctl, rxcsum;
 
-	if (adapter->netdev->mtu > ETH_DATA_LEN) {
+	if (!adapter->ecdev && adapter->netdev->mtu > ETH_DATA_LEN) {
 		rdlen = adapter->rx_ring[0].count *
 		        sizeof(struct e1000_rx_desc);
 		adapter->clean_rx = e1000_clean_jumbo_rx_irq;
@@ -3295,7 +3301,7 @@ static netdev_tx_t e1000_xmit_frame(struct sk_buff *skb,
 	/* need: count + 2 desc gap to keep tail from touching
 	 * head, otherwise try next time
 	 */
-	if (unlikely(!adapter->ecdev && e1000_maybe_stop_tx(netdev, tx_ring, count + 2)))
+	if (unlikely(e1000_maybe_stop_tx(netdev, tx_ring, count + 2)))
 		return NETDEV_TX_BUSY;
 
 	if (unlikely((hw->mac_type == e1000_82547) &&
@@ -3341,14 +3347,14 @@ static netdev_tx_t e1000_xmit_frame(struct sk_buff *skb,
 			     nr_frags, mss);
 
 	if (count) {
-		netdev_sent_queue(netdev, skb->len);
-		skb_tx_timestamp(skb);
+		if (!adapter->ecdev) {
+			netdev_sent_queue(netdev, skb->len);
+			skb_tx_timestamp(skb);
+		}
 
 		e1000_tx_queue(adapter, tx_ring, tx_flags, count);
 		/* Make sure there is space in the ring for the next send. */
-		if (!adapter->ecdev) {
-			e1000_maybe_stop_tx(netdev, tx_ring, MAX_SKB_FRAGS + 2);
-		}
+		e1000_maybe_stop_tx(netdev, tx_ring, MAX_SKB_FRAGS + 2);
 
 		if (!skb->xmit_more ||
 		    netif_xmit_stopped(netdev_get_tx_queue(netdev, 0))) {
@@ -4298,8 +4304,7 @@ static bool e1000_clean_jumbo_rx_irq(struct e1000_adapter *adapter,
 		length = le16_to_cpu(rx_desc->length);
 
 		/* errors is only valid for DD + EOP descriptors */
-		if (!adapter->ecdev &&
-		    unlikely((status & E1000_RXD_STAT_EOP) &&
+		if (unlikely((status & E1000_RXD_STAT_EOP) &&
 		    (rx_desc->errors & E1000_RXD_ERR_FRAME_ERR_MASK))) {
 			u8 *mapped = page_address(buffer_info->rxbuf.page);
 
@@ -4313,7 +4318,7 @@ static bool e1000_clean_jumbo_rx_irq(struct e1000_adapter *adapter,
 				/* an error means any chain goes out the window
 				 * too
 				 */
-				if (!adapter->ecdev && rx_ring->rx_skb_top)
+				if (rx_ring->rx_skb_top)
 					dev_kfree_skb(rx_ring->rx_skb_top);
 				rx_ring->rx_skb_top = NULL;
 				goto next_desc;
@@ -4381,15 +4386,8 @@ process_skb:
 					total_rx_bytes += skb->len;
 					total_rx_packets++;
 
-					if (adapter->ecdev) {
-						ecdev_receive(adapter->ecdev, skb->data, length);
-
-						// No need to detect link status as
-						// long as frames are received: Reset watchdog.
-						adapter->ec_watchdog_jiffies = jiffies;
-					} else {
-						e1000_receive_skb(adapter, status, rx_desc->special, skb);
-					}
+					e1000_receive_skb(adapter, status,
+							  rx_desc->special, skb);
 					goto next_desc;
 				} else {
 					skb = napi_get_frags(&adapter->napi);
@@ -4460,7 +4458,7 @@ static struct sk_buff *e1000_copybreak(struct e1000_adapter *adapter,
 {
 	struct sk_buff *skb;
 
-	if (adapter->ecdev || length > copybreak)
+	if (length > copybreak)
 		return NULL;
 
 	skb = e1000_alloc_rx_skb(adapter, length);
@@ -4562,8 +4560,7 @@ static bool e1000_clean_rx_irq(struct e1000_adapter *adapter,
 			goto next_desc;
 		}
 
-		if (!adapter->ecdev &&
-				unlikely(rx_desc->errors & E1000_RXD_ERR_FRAME_ERR_MASK)) {
+		if (unlikely(rx_desc->errors & E1000_RXD_ERR_FRAME_ERR_MASK)) {
 			if (e1000_tbi_should_accept(adapter, status,
 						    rx_desc->errors,
 						    length, data)) {
@@ -4571,7 +4568,9 @@ static bool e1000_clean_rx_irq(struct e1000_adapter *adapter,
 			} else if (netdev->features & NETIF_F_RXALL) {
 				goto process_skb;
 			} else {
-				dev_kfree_skb(skb);
+				if (!adapter->ecdev) {
+					dev_kfree_skb(skb);
+				}
 				goto next_desc;
 			}
 		}
@@ -5291,7 +5290,8 @@ static int __e1000_shutdown(struct pci_dev *pdev, bool *enable_wake)
 	if (netif_running(netdev))
 		e1000_free_irq(adapter);
 
-	pci_disable_device(pdev);
+	if (!test_and_set_bit(__E1000_DISABLED, &adapter->flags))
+		pci_disable_device(pdev);
 
 	return 0;
 }
@@ -5339,6 +5339,10 @@ static int e1000_resume(struct pci_dev *pdev)
 		pr_err("Cannot enable PCI device from suspend\n");
 		return err;
 	}
+
+	/* flush memory to make sure state is correct */
+	smp_mb__before_atomic();
+	clear_bit(__E1000_DISABLED, &adapter->flags);
 	pci_set_master(pdev);
 
 	pci_enable_wake(pdev, PCI_D3hot, 0);
@@ -5415,7 +5419,9 @@ static pci_ers_result_t e1000_io_error_detected(struct pci_dev *pdev,
 
 	if (netif_running(netdev))
 		e1000_down(adapter);
-	pci_disable_device(pdev);
+
+	if (!test_and_set_bit(__E1000_DISABLED, &adapter->flags))
+		pci_disable_device(pdev);
 
 	/* Request a slot slot reset. */
 	return PCI_ERS_RESULT_NEED_RESET;
@@ -5443,6 +5449,10 @@ static pci_ers_result_t e1000_io_slot_reset(struct pci_dev *pdev)
 		pr_err("Cannot re-enable PCI device after reset.\n");
 		return PCI_ERS_RESULT_DISCONNECT;
 	}
+
+	/* flush memory to make sure state is correct */
+	smp_mb__before_atomic();
+	clear_bit(__E1000_DISABLED, &adapter->flags);
 	pci_set_master(pdev);
 
 	pci_enable_wake(pdev, PCI_D3hot, 0);

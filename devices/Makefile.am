@@ -103,14 +103,14 @@ noinst_HEADERS = \
 	8139too-3.8-orig.c \
 	8139too-4.1-ethercat.c \
 	8139too-4.1-orig.c \
-	8139too-4.13-ethercat.c \
-	8139too-4.13-orig.c \
-	8139too-4.14-ethercat.c \
-	8139too-4.14-orig.c \
 	8139too-4.4-ethercat.c \
 	8139too-4.4-orig.c \
 	8139too-4.9-ethercat.c \
 	8139too-4.9-orig.c \
+	8139too-4.14-ethercat.c \
+	8139too-4.14-orig.c \
+	8139too-4.19-ethercat.c \
+	8139too-4.19-orig.c \
 	e100-2.6.20-ethercat.c \
 	e100-2.6.20-orig.c \
 	e100-2.6.24-ethercat.c \
@@ -153,16 +153,22 @@ noinst_HEADERS = \
 	e100-3.8-orig.c \
 	e100-4.1-ethercat.c \
 	e100-4.1-orig.c \
-	e100-4.13-ethercat.c \
-	e100-4.13-orig.c \
-	e100-4.14-ethercat.c \
-	e100-4.14-orig.c \
 	e100-4.4-ethercat.c \
 	e100-4.4-orig.c \
 	e100-4.9-ethercat.c \
 	e100-4.9-orig.c \
+	e100-4.14-ethercat.c \
+	e100-4.14-orig.c \
+	e100-4.19-ethercat.c \
+	e100-4.19-orig.c \
 	ecdev.h \
 	generic.c \
+	r8152-3.18-ethercat.c \
+	r8152-3.18-orig.c \
+	r8152-4.4-ethercat.c \
+	r8152-4.4-orig.c \
+	r8152-4.9-ethercat.c \
+	r8152-4.9-orig.c \
 	r8169-2.6.24-ethercat.c \
 	r8169-2.6.24-orig.c \
 	r8169-2.6.27-ethercat.c \
@@ -203,14 +209,12 @@ noinst_HEADERS = \
 	r8169-3.8-orig.c \
 	r8169-4.1-ethercat.c \
 	r8169-4.1-orig.c \
-	r8169-4.13-ethercat.c \
-	r8169-4.13-orig.c \
-	r8169-4.14-ethercat.c \
-	r8169-4.14-orig.c \
 	r8169-4.4-ethercat.c \
 	r8169-4.4-orig.c \
 	r8169-4.9-ethercat.c \
-	r8169-4.9-orig.c
+	r8169-4.9-orig.c \
+	r8169-4.14-ethercat.c \
+	r8169-4.14-orig.c
 
 EXTRA_DIST = \
 	Kbuild.in

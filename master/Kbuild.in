@@ -40,15 +40,14 @@ ec_master-objs := \
 	datagram_pair.o \
 	device.o \
 	domain.o \
-	eoe_request.o \
 	fmmu_config.o \
 	foe_request.o \
 	fsm_change.o \
 	fsm_coe.o \
-	fsm_eoe.o \
 	fsm_foe.o \
 	fsm_reboot.o \
 	fsm_master.o \
+	fsm_mbox_gateway.o \
 	fsm_pdo.o \
 	fsm_pdo_entry.o \
 	fsm_sii.o \
@@ -59,6 +58,7 @@ ec_master-objs := \
 	ioctl.o \
 	mailbox.o \
 	master.o \
+	mbox_gateway_request.o \
 	module.o \
 	pdo.o \
 	pdo_entry.o \
@@ -78,6 +78,8 @@ ec_master-objs := \
 	dict_request.o
 
 ifeq (@ENABLE_EOE@,1)
+ec_master-objs += eoe_request.o
+ec_master-objs += fsm_eoe.o
 ec_master-objs += ethernet.o
 endif
 
@@ -87,7 +89,12 @@ endif
 
 ifeq (@ENABLE_RTDM@,1)
 
+ifeq (@ENABLE_XENOMAI_V3@, 1)
+ec_master-objs += rtdm_xenomai_v3.o
+CFLAGS_rtdm.o := -I@XENOMAI_DIR@/include
+else
 ec_master-objs += rtdm.o
+endif
 
 ifeq (@ENABLE_XENOMAI@, 1)
 EXTRA_CFLAGS := -I@XENOMAI_DIR@/include

@@ -144,7 +144,7 @@
 
 /** EtherCAT realtime interface patchlevel number.
  */
-#define ECRT_VER_PATCH 9
+#define ECRT_VER_PATCH 10
 
 /** EtherCAT realtime interface version word generator.
  */
@@ -190,6 +190,10 @@
 /** Defined if the method ecrt_slave_config_reg_pdo_entry_pos() is available.
  */
 #define EC_HAVE_REG_BY_POS
+
+/** Defined if the method ecrt_master_sync_reference_clock_to() is available.
+ */
+#define EC_HAVE_SYNC_TO
 
 /*****************************************************************************/
 
@@ -1169,11 +1173,10 @@ int ecrt_master_link_state(
  * distributed clocks. The time is not incremented by the master itself, so
  * this method has to be called cyclically.
  *
- * \attention The first call of this method is used to calculate the phase
- * delay for the slaves' SYNC0/1 interrupts. Either the method has to be
- * called during the realtime cycle *only*, or the first time submitted must
- * be in-phase with the realtime cycle. Otherwise synchronisation problems can
- * occur.
+ * \attention The time passed to this method is used to calculate the phase of
+ * the slaves' SYNC0/1 interrupts. It should be called constantly at the same
+ * point of the realtime cycle. So it is recommended to call it at the start
+ * of the calculations to avoid deviancies due to changing execution times.
  *
  * The time is used when setting the slaves' <tt>System Time Offset</tt> and
  * <tt>Cyclic Operation Start Time</tt> registers and when synchronizing the
@@ -1181,7 +1184,8 @@ int ecrt_master_link_state(
  * ecrt_master_sync_reference_clock().
  *
  * The time is defined as nanoseconds from 2000-01-01 00:00. Converting an
- * epoch time can be done with the EC_TIMEVAL2NANO() macro.
+ * epoch time can be done with the EC_TIMEVAL2NANO() macro, but is not
+ * necessary, since the absolute value is not of any interest.
  */
 void ecrt_master_application_time(
         ec_master_t *master, /**< EtherCAT master. */
@@ -1195,6 +1199,16 @@ void ecrt_master_application_time(
  */
 void ecrt_master_sync_reference_clock(
         ec_master_t *master /**< EtherCAT master. */
+        );
+
+/** Queues the DC reference clock drift compensation datagram for sending.
+ *
+ * The reference clock will by synchronized to the time passed in the
+ * sync_time parameter.
+ */
+void ecrt_master_sync_reference_clock_to(
+        ec_master_t *master, /**< EtherCAT master. */
+        uint64_t sync_time /**< Sync reference clock to this time. */
         );
 
 /** Queues the DC clock drift compensation datagram for sending.
@@ -2435,26 +2449,6 @@ void ecrt_reg_request_read(
         size_t size /**< Size to write. */
         );
 
-/** Schedule a register read-write operation.
- *
- * \attention This method may not be called while ecrt_reg_request_state()
- * returns EC_REQUEST_BUSY.
- *
- * \attention The \a size parameter is truncated to the size given at request
- * creation.
- */
-void ecrt_reg_request_readwrite(
-        ec_reg_request_t *req, /**< Register request. */
-        uint16_t address, /**< Register address. */
-        size_t size /**< Size to read-write. */
-        );
-
-/*****************************************************************************/
-
-#ifdef __cplusplus
-}
-#endif
-
 /******************************************************************************
  * Bitwise read/write macros
  *****************************************************************************/
@@ -2601,6 +2595,42 @@ void ecrt_reg_request_readwrite(
      ((int64_t) le64_to_cpup((void *) (DATA)))
 
 /******************************************************************************
+ * Floating-point read functions and macros (userspace only)
+ *****************************************************************************/
+
+#ifndef __KERNEL__
+
+/** Read a 32-bit floating-point value from EtherCAT data.
+ *
+ * \param data EtherCAT data pointer
+ * \return EtherCAT data value
+ */
+float ecrt_read_real(const void *data);
+
+/** Read a 32-bit floating-point value from EtherCAT data.
+ *
+ * \param DATA EtherCAT data pointer
+ * \return EtherCAT data value
+ */
+#define EC_READ_REAL(DATA) ecrt_read_real(DATA)
+
+/** Read a 64-bit floating-point value from EtherCAT data.
+ *
+ * \param data EtherCAT data pointer
+ * \return EtherCAT data value
+ */
+double ecrt_read_lreal(const void *data);
+
+/** Read a 64-bit floating-point value from EtherCAT data.
+ *
+ * \param DATA EtherCAT data pointer
+ * \return EtherCAT data value
+ */
+#define EC_READ_LREAL(DATA) ecrt_read_lreal(DATA)
+
+#endif // ifndef __KERNEL__
+
+/******************************************************************************
  * Write macros
  *****************************************************************************/
 
@@ -2671,6 +2701,62 @@ void ecrt_reg_request_readwrite(
  * \param VAL new value
  */
 #define EC_WRITE_S64(DATA, VAL) EC_WRITE_U64(DATA, VAL)
+
+/******************************************************************************
+ * Floating-point write functions and macros (userspace only)
+ *****************************************************************************/
+
+#ifndef __KERNEL__
+
+/** Write a 32-bit floating-point value to EtherCAT data.
+ *
+ * \param data EtherCAT data pointer
+ * \param value new value
+ */
+void ecrt_write_real(void *data, float value);
+
+/** Write a 32-bit floating-point value to EtherCAT data.
+ *
+ * \param DATA EtherCAT data pointer
+ * \param VAL new value
+ */
+#define EC_WRITE_REAL(DATA, VAL) ecrt_write_real(DATA, VAL)
+
+/** Write a 64-bit floating-point value to EtherCAT data.
+ *
+ * \param data EtherCAT data pointer
+ * \param value new value
+ */
+void ecrt_write_lreal(void *data, double value);
+
+/** Write a 64-bit floating-point value to EtherCAT data.
+ *
+ * \param DATA EtherCAT data pointer
+ * \param VAL new value
+ */
+#define EC_WRITE_LREAL(DATA, VAL) ecrt_write_lreal(DATA, VAL)
+
+#endif // ifndef __KERNEL__
+
+/** Schedule a register read-write operation.
+ *
+ * \attention This method may not be called while ecrt_reg_request_state()
+ * returns EC_REQUEST_BUSY.
+ *
+ * \attention The \a size parameter is truncated to the size given at request
+ * creation.
+ */
+void ecrt_reg_request_readwrite(
+        ec_reg_request_t *req, /**< Register request. */
+        uint16_t address, /**< Register address. */
+        size_t size /**< Size to read-write. */
+        );
+
+/*****************************************************************************/
+
+#ifdef __cplusplus
+}
+#endif
 
 /*****************************************************************************/
 

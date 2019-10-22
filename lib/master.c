@@ -1,8 +1,6 @@
 /*****************************************************************************
  *
- *  $Id$
- *
- *  Copyright (C) 2006-2012  Florian Pose, Ingenieurgemeinschaft IgH
+ *  Copyright (C) 2006-2019  Florian Pose, Ingenieurgemeinschaft IgH
  *
  *  This file is part of the IgH EtherCAT master userspace library.
  *
@@ -69,6 +67,7 @@ void ec_master_clear_config(ec_master_t *master)
     while (d) {
         next_d = d->next;
         ec_domain_clear(d);
+        free(d);
         d = next_d;
     }
     master->first_domain = NULL;
@@ -77,9 +76,16 @@ void ec_master_clear_config(ec_master_t *master)
     while (c) {
         next_c = c->next;
         ec_slave_config_clear(c);
+        free(c);
         c = next_c;
     }
     master->first_config = NULL;
+
+    if (master->process_data)  {
+        munmap(master->process_data, master->process_data_size);
+        master->process_data = NULL;
+        master->process_data_size = 0;
+    }
 }
 
 /****************************************************************************/
@@ -94,6 +100,7 @@ void ec_master_clear(ec_master_t *master)
 #else
         close(master->fd);
 #endif
+        master->fd = -1;
     }
 }
 
@@ -412,7 +419,7 @@ int ecrt_master_sdo_download(ec_master_t *master, uint16_t slave_position,
             *abort_code = download.abort_code;
         }
         EC_PRINT_ERR("Failed to execute SDO download: %s\n",
-            strerror(EC_IOCTL_ERRNO(ret)));
+                strerror(EC_IOCTL_ERRNO(ret)));
         return -EC_IOCTL_ERRNO(ret);
     }
 
@@ -441,7 +448,7 @@ int ecrt_master_sdo_download_complete(ec_master_t *master,
             *abort_code = download.abort_code;
         }
         EC_PRINT_ERR("Failed to execute SDO download: %s\n",
-            strerror(EC_IOCTL_ERRNO(ret)));
+                strerror(EC_IOCTL_ERRNO(ret)));
         return -EC_IOCTL_ERRNO(ret);
     }
 
@@ -583,7 +590,7 @@ int ecrt_master_setup_domain_memory(ec_master_t *master)
     if (io.process_data_size) {
         master->process_data_size = io.process_data_size;
 
-#ifdef USE_RTDM
+#if defined(USE_RTDM) || defined(USE_RTDM_XENOMAI_V3)
         /* memory-mapping was already done in kernel. The user-space addess is
          * provided in the ioctl data.
          */
@@ -625,7 +632,7 @@ int ecrt_master_activate(ec_master_t *master)
     if (io.process_data_size) {
         master->process_data_size = io.process_data_size;
 
-#ifdef USE_RTDM
+#if defined(USE_RTDM) || defined(USE_RTDM_XENOMAI_V3)
         /* memory-mapping was already done in kernel. The user-space addess is
          * provided in the ioctl data.
          */
@@ -853,12 +860,12 @@ int ecrt_master_link_state(const ec_master_t *master, unsigned int dev_idx,
 
 void ecrt_master_application_time(ec_master_t *master, uint64_t app_time)
 {
-    ec_ioctl_app_time_t data;
+    uint64_t time;
     int ret;
 
-    data.app_time = app_time;
+    time = app_time;
 
-    ret = ioctl(master->fd, EC_IOCTL_APP_TIME, &data);
+    ret = ioctl(master->fd, EC_IOCTL_APP_TIME, &time);
     if (EC_IOCTL_IS_ERROR(ret)) {
         EC_PRINT_ERR("Failed to set application time: %s\n",
                 strerror(EC_IOCTL_ERRNO(ret)));
@@ -872,6 +879,23 @@ void ecrt_master_sync_reference_clock(ec_master_t *master)
     int ret;
 
     ret = ioctl(master->fd, EC_IOCTL_SYNC_REF, NULL);
+    if (EC_IOCTL_IS_ERROR(ret)) {
+        EC_PRINT_ERR("Failed to sync reference clock: %s\n",
+                strerror(EC_IOCTL_ERRNO(ret)));
+    }
+}
+
+/****************************************************************************/
+
+void ecrt_master_sync_reference_clock_to(ec_master_t *master,
+        uint64_t sync_time)
+{
+    uint64_t time;
+    int ret;
+
+    time = sync_time;
+
+    ret = ioctl(master->fd, EC_IOCTL_SYNC_REF_TO, &time);
     if (EC_IOCTL_IS_ERROR(ret)) {
         EC_PRINT_ERR("Failed to sync reference clock: %s\n",
                 strerror(EC_IOCTL_ERRNO(ret)));

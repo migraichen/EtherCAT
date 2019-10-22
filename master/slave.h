@@ -276,6 +276,7 @@ struct ec_slave
     struct list_head foe_requests; /**< FoE requests. */
     struct list_head soe_requests; /**< SoE requests. */
     struct list_head eoe_requests; /**< EoE set IP parameter requests. */
+    struct list_head mbg_requests; /**< EoE set IP parameter requests. */
     struct list_head dict_requests; /**< Dictionary read requests. */
 
     ec_fsm_slave_t fsm; /**< Slave state machine. */
@@ -284,12 +285,14 @@ struct ec_slave
     struct rt_mutex mbox_sem; /**< Semaphore protecting the check_mbox variable. */
 
 #ifdef EC_EOE
-    ec_mbox_data_t mbox_eoe_data; /**< Received mailbox data for EoE. */
+    ec_mbox_data_t mbox_eoe_frag_data; /**< Received mailbox data for EoE, type frame fragment. */
+    ec_mbox_data_t mbox_eoe_init_data; /**< Received mailbox data for EoE, type eoe init reponse. */
 #endif
     ec_mbox_data_t mbox_coe_data; /**< Received mailbox data for CoE. */
     ec_mbox_data_t mbox_foe_data; /**< Received mailbox data for FoE. */
     ec_mbox_data_t mbox_soe_data; /**< Received mailbox data for SoE. */
     ec_mbox_data_t mbox_voe_data; /**< Received mailbox data for VoE. */
+    ec_mbox_data_t mbox_mbg_data; /**< Received mailbox data for MBox Gateway. */
 
     uint8_t valid_mbox_data; /**< Received mailbox data is valid. */
 };

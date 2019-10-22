@@ -557,9 +557,9 @@ void e1000_down(struct e1000_adapter *adapter)
 	ew32(RCTL, rctl & ~E1000_RCTL_EN);
 	/* flush and sleep below */
 
-	if (!adapter->ecdev) {
-		netif_tx_disable(netdev);
-	}
+        if (!adapter->ecdev) {
+                netif_tx_disable(netdev);
+        }
 
 	/* disable transmits in the hardware */
 	tctl = er32(TCTL);
@@ -576,11 +576,9 @@ void e1000_down(struct e1000_adapter *adapter)
 	 * a race condition would result into transmission being disabled
 	 * in the hardware until the next IFF_DOWN+IFF_UP cycle.
 	 */
-	if (!adapter->ecdev) {
-		netif_carrier_off(netdev);
-	}
+        if (!adapter->ecdev) {
+                netif_carrier_off(netdev);
 
-	if (!adapter->ecdev) {
 		napi_disable(&adapter->napi);
 
 		e1000_irq_disable(adapter);
@@ -1931,7 +1929,7 @@ static void e1000_configure_rx(struct e1000_adapter *adapter)
 	struct e1000_hw *hw = &adapter->hw;
 	u32 rdlen, rctl, rxcsum;
 
-	if (adapter->netdev->mtu > ETH_DATA_LEN) {
+	if (!adapter->ecdev && adapter->netdev->mtu > ETH_DATA_LEN) {
 		rdlen = adapter->rx_ring[0].count *
 			sizeof(struct e1000_rx_desc);
 		adapter->clean_rx = e1000_clean_jumbo_rx_irq;
@@ -3315,7 +3313,7 @@ static netdev_tx_t e1000_xmit_frame(struct sk_buff *skb,
 	/* need: count + 2 desc gap to keep tail from touching
 	 * head, otherwise try next time
 	 */
-	if (unlikely(!adapter->ecdev && e1000_maybe_stop_tx(netdev, tx_ring, count + 2)))
+	if (unlikely(e1000_maybe_stop_tx(netdev, tx_ring, count + 2)))
 		return NETDEV_TX_BUSY;
 
 	if (unlikely((hw->mac_type == e1000_82547) &&
@@ -3370,8 +3368,10 @@ static netdev_tx_t e1000_xmit_frame(struct sk_buff *skb,
 		 */
 		int desc_needed = MAX_SKB_FRAGS + 7;
 
-		netdev_sent_queue(netdev, skb->len);
-		skb_tx_timestamp(skb);
+                if (!adapter->ecdev) {
+                        netdev_sent_queue(netdev, skb->len);
+                        skb_tx_timestamp(skb);
+                }
 
 		e1000_tx_queue(adapter, tx_ring, tx_flags, count);
 
@@ -3383,9 +3383,7 @@ static netdev_tx_t e1000_xmit_frame(struct sk_buff *skb,
 			desc_needed += MAX_SKB_FRAGS + 1;
 
 		/* Make sure there is space in the ring for the next send. */
-		if (!adapter->ecdev) {
-			e1000_maybe_stop_tx(netdev, tx_ring, desc_needed);
-		}
+		e1000_maybe_stop_tx(netdev, tx_ring, desc_needed);
 
 		if (!skb->xmit_more ||
 		    netif_xmit_stopped(netdev_get_tx_queue(netdev, 0))) {
@@ -4321,8 +4319,7 @@ static bool e1000_clean_jumbo_rx_irq(struct e1000_adapter *adapter,
 		length = le16_to_cpu(rx_desc->length);
 
 		/* errors is only valid for DD + EOP descriptors */
-		if (!adapter->ecdev &&
-		    unlikely((status & E1000_RXD_STAT_EOP) &&
+		if (unlikely((status & E1000_RXD_STAT_EOP) &&
 		    (rx_desc->errors & E1000_RXD_ERR_FRAME_ERR_MASK))) {
 			u8 *mapped = page_address(buffer_info->rxbuf.page);
 
@@ -4336,7 +4333,7 @@ static bool e1000_clean_jumbo_rx_irq(struct e1000_adapter *adapter,
 				/* an error means any chain goes out the window
 				 * too
 				 */
-				if (!adapter->ecdev && rx_ring->rx_skb_top)
+				if (rx_ring->rx_skb_top)
 					dev_kfree_skb(rx_ring->rx_skb_top);
 				rx_ring->rx_skb_top = NULL;
 				goto next_desc;
@@ -4404,15 +4401,8 @@ process_skb:
 					total_rx_bytes += skb->len;
 					total_rx_packets++;
 
-					if (adapter->ecdev) {
-						ecdev_receive(adapter->ecdev, skb->data, length);
-
-						// No need to detect link status as
-						// long as frames are received: Reset watchdog.
-						adapter->ec_watchdog_jiffies = jiffies;
-					} else {
-						e1000_receive_skb(adapter, status, rx_desc->special, skb);
-					}
+					e1000_receive_skb(adapter, status,
+							  rx_desc->special, skb);
 					goto next_desc;
 				} else {
 					skb = napi_get_frags(&adapter->napi);
@@ -4483,7 +4473,7 @@ static struct sk_buff *e1000_copybreak(struct e1000_adapter *adapter,
 {
 	struct sk_buff *skb;
 
-	if (adapter->ecdev || length > copybreak)
+	if (length > copybreak)
 		return NULL;
 
 	skb = e1000_alloc_rx_skb(adapter, length);
@@ -4587,8 +4577,7 @@ static bool e1000_clean_rx_irq(struct e1000_adapter *adapter,
 			goto next_desc;
 		}
 
-		if (!adapter->ecdev &&
-				unlikely(rx_desc->errors & E1000_RXD_ERR_FRAME_ERR_MASK)) {
+		if (unlikely(rx_desc->errors & E1000_RXD_ERR_FRAME_ERR_MASK)) {
 			if (e1000_tbi_should_accept(adapter, status,
 						    rx_desc->errors,
 						    length, data)) {
@@ -4596,7 +4585,9 @@ static bool e1000_clean_rx_irq(struct e1000_adapter *adapter,
 			} else if (netdev->features & NETIF_F_RXALL) {
 				goto process_skb;
 			} else {
-				dev_kfree_skb(skb);
+				if (!adapter->ecdev) {
+					dev_kfree_skb(skb);
+				}
 				goto next_desc;
 			}
 		}

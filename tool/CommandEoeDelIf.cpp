@@ -53,7 +53,7 @@ class NumberParser:
 /*****************************************************************************/
 
 CommandEoeDelIf::CommandEoeDelIf():
-    Command("eoe_delif", "Add an EOE interface to a master.")
+    Command("eoe_delif", "Remove an EOE interface from a master.")
 {
 }
 

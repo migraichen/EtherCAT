@@ -744,9 +744,11 @@ void ec_mbox_prot_data_prealloc(
     if ((size > 0) && (size <= EC_MAX_DATA_SIZE)) {
 #ifdef EC_EOE
         if (protocols & EC_MBOX_EOE) {
-            ec_mbox_data_prealloc(&slave->mbox_eoe_data, size);
+            ec_mbox_data_prealloc(&slave->mbox_eoe_frag_data, size);
+            ec_mbox_data_prealloc(&slave->mbox_eoe_init_data, size);
         } else {
-            ec_mbox_data_clear(&slave->mbox_eoe_data);
+            ec_mbox_data_clear(&slave->mbox_eoe_frag_data);
+            ec_mbox_data_clear(&slave->mbox_eoe_init_data);
         }
 #endif
         if (protocols & EC_MBOX_COE) {
@@ -768,6 +770,13 @@ void ec_mbox_prot_data_prealloc(
             ec_mbox_data_prealloc(&slave->mbox_voe_data, size);
         } else {
             ec_mbox_data_clear(&slave->mbox_voe_data);
+        }
+        
+        // alloc mailbox gateway if slave supports any protocol
+        if (protocols) {
+            ec_mbox_data_prealloc(&slave->mbox_mbg_data, size);
+        } else {
+            ec_mbox_data_clear(&slave->mbox_mbg_data);
         }
     }
 }

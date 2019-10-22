@@ -93,7 +93,7 @@ class MasterDeviceSoeException:
 };
 
 /****************************************************************************/
-
+#ifdef EC_EOE
 class MasterDeviceEoeException:
     public MasterDeviceException
 {
@@ -108,7 +108,7 @@ class MasterDeviceEoeException:
             MasterDeviceException("EoE set IP parameter failed."),
             result(result) {};
 };
-
+#endif
 /****************************************************************************/
 
 class MasterDevice
@@ -138,6 +138,8 @@ class MasterDevice
         void getFmmu(ec_ioctl_domain_fmmu_t *, unsigned int, unsigned int);
         void getData(ec_ioctl_domain_data_t *, unsigned int, unsigned int,
                 unsigned char *);
+        void getPcap(ec_ioctl_pcap_data_t *, unsigned char, unsigned int,
+                unsigned char *);
         void getSlave(ec_ioctl_slave_t *, uint16_t);
         void getSync(ec_ioctl_slave_sync_t *, uint16_t, uint8_t);
         void getPdo(ec_ioctl_slave_sync_pdo_t *, uint16_t, uint8_t, uint8_t);
@@ -163,11 +165,11 @@ class MasterDevice
         void getEoeHandler(ec_ioctl_eoe_handler_t *, uint16_t);
         void addEoeIf(uint16_t, uint16_t);
         void delEoeIf(uint16_t, uint16_t);
+        void setIpParam(ec_ioctl_slave_eoe_ip_t *);
 #endif
         void readSoe(ec_ioctl_slave_soe_read_t *);
         void writeSoe(ec_ioctl_slave_soe_write_t *);
         void dictUpload(ec_ioctl_slave_dict_upload_t *);
-        void setIpParam(ec_ioctl_slave_eoe_ip_t *);
 
         unsigned int getMasterCount() const {return masterCount;}
 

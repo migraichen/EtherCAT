@@ -91,7 +91,7 @@ struct ec_device
 #ifdef EC_HAVE_CYCLES
     cycles_t cycles_poll; /**< cycles of last poll */
 #endif
-#ifdef EC_DEBUG_RING
+#if defined(EC_DEBUG_RING) || !defined(EC_RTDM)
     struct timeval timeval_poll;
 #endif
     unsigned long jiffies_poll; /**< jiffies of last poll */
@@ -128,6 +128,35 @@ struct ec_device
     unsigned int debug_frame_count;
 #endif
 };
+
+/*****************************************************************************/
+
+/**
+   pcap global header
+*/
+
+typedef struct {
+    u32 magic_number;   /* magic number */
+    u16 version_major;  /* major version number */
+    u16 version_minor;  /* minor version number */
+    s32 thiszone;       /* GMT to local correction */
+    u32 sigfigs;        /* accuracy of timestamps */
+    u32 snaplen;        /* max length of captured packets, in octets */
+    u32 network;        /* data link type */
+} pcap_hdr_t;
+
+/*****************************************************************************/
+
+/**
+   pcap packet header
+*/
+
+typedef struct {
+    u32 ts_sec;         /* timestamp seconds */
+    u32 ts_usec;        /* timestamp microseconds */
+    u32 incl_len;       /* number of octets of packet saved in file */
+    u32 orig_len;       /* actual length of packet */
+} pcaprec_hdr_t;
 
 /*****************************************************************************/
 

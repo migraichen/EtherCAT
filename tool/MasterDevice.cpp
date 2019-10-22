@@ -251,6 +251,22 @@ void MasterDevice::getData(ec_ioctl_domain_data_t *data,
 
 /****************************************************************************/
 
+void MasterDevice::getPcap(ec_ioctl_pcap_data_t *data,
+        unsigned char resetData, unsigned int dataSize, unsigned char *mem)
+{
+    data->reset_data = resetData;
+    data->data_size = dataSize;
+    data->target = mem;
+
+    if (ioctl(fd, EC_IOCTL_PCAP_DATA, data) < 0) {
+        stringstream err;
+        err << "Failed to get pcap data: " << strerror(errno);
+        throw MasterDeviceException(err);
+    }
+}
+
+/****************************************************************************/
+
 void MasterDevice::getSlave(ec_ioctl_slave_t *slave, uint16_t slaveIndex)
 {
     slave->position = slaveIndex;
@@ -685,6 +701,7 @@ void MasterDevice::writeSoe(ec_ioctl_slave_soe_write_t *data)
 
 /****************************************************************************/
 
+#ifdef EC_EOE
 void MasterDevice::setIpParam(ec_ioctl_slave_eoe_ip_t *data)
 {
     if (ioctl(fd, EC_IOCTL_SLAVE_EOE_IP_PARAM, data) < 0) {
@@ -697,5 +714,6 @@ void MasterDevice::setIpParam(ec_ioctl_slave_eoe_ip_t *data)
         }
     }
 }
+#endif
 
 /*****************************************************************************/

@@ -67,33 +67,37 @@ static ec_master_state_t master_state = {};
 static ec_domain_t *domain1 = NULL;
 static ec_domain_state_t domain1_state = {};
 
-static ec_slave_config_t *sc_dig_out = NULL;
-static ec_slave_config_state_t sc_dig_out_state = {};
-
-static ec_slave_config_t *sc_dig_in = NULL;
-static ec_slave_config_state_t sc_dig_in_state = {};
+static ec_slave_config_t *sc_ana_in = NULL;
+static ec_slave_config_state_t sc_ana_in_state = {};
 
 /****************************************************************************/
 
 // process data
 static uint8_t *domain1_pd = NULL;
 
-#define BusCouplerPos  0, 0 // Info aus "ethercat slaves"
-#define DigOutSlavePos 0, 1
-#define DigInSlavePos  0, 2
+#define BusCouplerPos  0, 0
+#define DigOutSlavePos 0, 2
+#define AnaInSlavePos  0, 3
+#define AnaOutSlavePos 0, 4
 
-#define Beckhoff_EK1100 0x00000002, 0x044c2c52  // Info aus "ethercat slaves -v"
-#define Beckhoff_EL2008 0x00000002, 0x07d83052  // ethercat cstruct -p1 -v -> "Vendor ID" und "Product Code"
-#define Beckhoff_EL1008 0x00000002, 0x03f03052  // ethercat cstruct -p2 -v -> "Vendor ID" und "Product Code"
-
+#define Beckhoff_EK1100 0x00000002, 0x044c2c52
+#define Beckhoff_EL2004 0x00000002, 0x07d43052
+#define Beckhoff_EL2032 0x00000002, 0x07f03052
+#define Beckhoff_EL3152 0x00000002, 0x0c503052
+#define Beckhoff_EL3102 0x00000002, 0x0c1e3052
+#define Beckhoff_EL4102 0x00000002, 0x10063052
 
 // offsets for PDO entries
+static unsigned int off_ana_in_status;
+static unsigned int off_ana_in_value;
+static unsigned int off_ana_out;
 static unsigned int off_dig_out;
-static unsigned int off_dig_in;
 
-const static ec_pdo_entry_reg_t domain1_regs[] = {              // ethercat cstruct -pX -v
-    {DigOutSlavePos, Beckhoff_EL2008, 0x7000, 1, &off_dig_out}, // 0x7000 -> erster offset von ec_pdo_entry_info_t !!!
-	{DigInSlavePos,  Beckhoff_EL1008, 0x6000, 1, &off_dig_in},  // 0x6000 -> erster offset von ec_pdo_entry_info_t !!!
+const static ec_pdo_entry_reg_t domain1_regs[] = {
+    {AnaInSlavePos,  Beckhoff_EL3102, 0x3101, 1, &off_ana_in_status},
+    {AnaInSlavePos,  Beckhoff_EL3102, 0x3101, 2, &off_ana_in_value},
+    {AnaOutSlavePos, Beckhoff_EL4102, 0x3001, 1, &off_ana_out},
+    {DigOutSlavePos, Beckhoff_EL2032, 0x3001, 1, &off_dig_out},
     {}
 };
 
@@ -102,52 +106,66 @@ static unsigned int blink = 0;
 
 /*****************************************************************************/
 
-// Digital out ------------------------ Infos aus ethercat cstruct -p1 -v
+// Analog in --------------------------
 
-static ec_pdo_entry_info_t el2008_channels[] = {
-    {0x7000, 0x01, 1}, // Value 1
-    {0x7010, 0x01, 1}, // Value 2
-    {0x7020, 0x01, 1}, // Value 3
-    {0x7030, 0x01, 1}, // Value 4
-    {0x7040, 0x01, 1}, // Value 5
-    {0x7050, 0x01, 1}, // Value 6
-    {0x7060, 0x01, 1}, // Value 7
-    {0x7070, 0x01, 1}  // Value 8
+static ec_pdo_entry_info_t el3102_pdo_entries[] = {
+    {0x3101, 1,  8}, // channel 1 status
+    {0x3101, 2, 16}, // channel 1 value
+    {0x3102, 1,  8}, // channel 2 status
+    {0x3102, 2, 16}, // channel 2 value
+    {0x6401, 1, 16}, // channel 1 value (alt.)
+    {0x6401, 2, 16}  // channel 2 value (alt.)
 };
 
-static ec_pdo_info_t el2008_pdos[] = {
-    {0x1600, 1, &el2008_channels[0]},
-    {0x1601, 1, &el2008_channels[1]},
-    {0x1602, 1, &el2008_channels[2]},
-    {0x1603, 1, &el2008_channels[3]},
-    {0x1604, 1, &el2008_channels[4]},
-    {0x1605, 1, &el2008_channels[5]},
-    {0x1606, 1, &el2008_channels[6]},
-    {0x1607, 1, &el2008_channels[7]}
+static ec_pdo_info_t el3102_pdos[] = {
+    {0x1A00, 2, el3102_pdo_entries},
+    {0x1A01, 2, el3102_pdo_entries + 2}
 };
 
-// Digital out ------------------------ Infos aus ethercat cstruct -p2 -v
-
-static ec_pdo_entry_info_t el1008_channels[] = {
-    {0x6000, 0x01, 1}, // Value 1
-    {0x6010, 0x01, 1}, // Value 2
-    {0x6020, 0x01, 1}, // Value 3
-    {0x6030, 0x01, 1}, // Value 4
-    {0x6040, 0x01, 1}, // Value 5
-    {0x6050, 0x01, 1}, // Value 6
-    {0x6060, 0x01, 1}, // Value 7
-    {0x6070, 0x01, 1}  // Value 8
+static ec_sync_info_t el3102_syncs[] = {
+    {2, EC_DIR_OUTPUT},
+    {3, EC_DIR_INPUT, 2, el3102_pdos},
+    {0xff}
 };
 
-static ec_pdo_info_t el1008_pdos[] = {
-    {0x1a00, 1, &el1008_channels[0]},
-    {0x1a01, 1, &el1008_channels[1]},
-    {0x1a02, 1, &el1008_channels[2]},
-    {0x1a03, 1, &el1008_channels[3]},
-    {0x1a04, 1, &el1008_channels[4]},
-    {0x1a05, 1, &el1008_channels[5]},
-    {0x1a06, 1, &el1008_channels[6]},
-    {0x1a07, 1, &el1008_channels[7]}
+// Analog out -------------------------
+
+static ec_pdo_entry_info_t el4102_pdo_entries[] = {
+    {0x3001, 1, 16}, // channel 1 value
+    {0x3002, 1, 16}, // channel 2 value
+};
+
+static ec_pdo_info_t el4102_pdos[] = {
+    {0x1600, 1, el4102_pdo_entries},
+    {0x1601, 1, el4102_pdo_entries + 1}
+};
+
+static ec_sync_info_t el4102_syncs[] = {
+    {2, EC_DIR_OUTPUT, 2, el4102_pdos},
+    {3, EC_DIR_INPUT},
+    {0xff}
+};
+
+// Digital out ------------------------
+
+static ec_pdo_entry_info_t el2004_channels[] = {
+    {0x3001, 1, 1}, // Value 1
+    {0x3001, 2, 1}, // Value 2
+    {0x3001, 3, 1}, // Value 3
+    {0x3001, 4, 1}  // Value 4
+};
+
+static ec_pdo_info_t el2004_pdos[] = {
+    {0x1600, 1, &el2004_channels[0]},
+    {0x1601, 1, &el2004_channels[1]},
+    {0x1602, 1, &el2004_channels[2]},
+    {0x1603, 1, &el2004_channels[3]}
+};
+
+static ec_sync_info_t el2004_syncs[] = {
+    {0, EC_DIR_OUTPUT, 4, el2004_pdos},
+    {1, EC_DIR_INPUT},
+    {0xff}
 };
 
 /*****************************************************************************/
@@ -195,19 +213,19 @@ void check_slave_config_states(void)
 {
     ec_slave_config_state_t s;
 
-    ecrt_slave_config_state(sc_dig_out, &s);
+    ecrt_slave_config_state(sc_ana_in, &s);
 
-    if (s.al_state != sc_dig_out_state.al_state) {
-        printf("DigOut: State 0x%02X.\n", s.al_state);
+    if (s.al_state != sc_ana_in_state.al_state) {
+        printf("AnaIn: State 0x%02X.\n", s.al_state);
     }
-    if (s.online != sc_dig_out_state.online) {
-        printf("DigOut: %s.\n", s.online ? "online" : "offline");
+    if (s.online != sc_ana_in_state.online) {
+        printf("AnaIn: %s.\n", s.online ? "online" : "offline");
     }
-    if (s.operational != sc_dig_out_state.operational) {
-        printf("DigOut: %soperational.\n", s.operational ? "" : "Not ");
+    if (s.operational != sc_ana_in_state.operational) {
+        printf("AnaIn: %soperational.\n", s.operational ? "" : "Not ");
     }
 
-    sc_dig_out_state = s;
+    sc_ana_in_state = s;
 }
 
 /*****************************************************************************/
@@ -236,11 +254,17 @@ void cyclic_task()
         check_slave_config_states();
     }
 
+#if 0
+    // read process data
+    printf("AnaIn: state %u value %u\n",
+            EC_READ_U8(domain1_pd + off_ana_in_status),
+            EC_READ_U16(domain1_pd + off_ana_in_value));
+#endif
+
+#if 1
     // write process data
     EC_WRITE_U8(domain1_pd + off_dig_out, blink ? 0x06 : 0x09);
-
-    // read process data
-    printf("DigIn: Value 0x%02x\n", EC_READ_U8(domain1_pd + off_dig_in));
+#endif
 
     // send process data
     ecrt_domain_queue(domain1);
@@ -274,19 +298,37 @@ int main(int argc, char **argv)
         return -1;
     }
 
-
-    if (!(sc_dig_out = ecrt_master_slave_config( master, DigOutSlavePos, Beckhoff_EL2008)) ) {
-        fprintf(stderr, "Failed to get slave configuration form EL2008.\n");
+    if (!(sc_ana_in = ecrt_master_slave_config(
+                    master, AnaInSlavePos, Beckhoff_EL3102))) {
+        fprintf(stderr, "Failed to get slave configuration.\n");
         return -1;
     }
 
-//    if (ecrt_slave_config_pdos(sc, EC_END, el2008_syncs)) {
-//        fprintf(stderr, "Failed to configure PDOs.\n");
-//        return -1;
-//    }
+    printf("Configuring PDOs...\n");
+    if (ecrt_slave_config_pdos(sc_ana_in, EC_END, el3102_syncs)) {
+        fprintf(stderr, "Failed to configure PDOs.\n");
+        return -1;
+    }
 
-    if (!(sc_dig_in = ecrt_master_slave_config( master, DigInSlavePos, Beckhoff_EL1008)) ) {
-        fprintf(stderr, "Failed to get slave configuration from EL1008.\n");
+    if (!(sc = ecrt_master_slave_config(
+                    master, AnaOutSlavePos, Beckhoff_EL4102))) {
+        fprintf(stderr, "Failed to get slave configuration.\n");
+        return -1;
+    }
+
+    if (ecrt_slave_config_pdos(sc, EC_END, el4102_syncs)) {
+        fprintf(stderr, "Failed to configure PDOs.\n");
+        return -1;
+    }
+
+    if (!(sc = ecrt_master_slave_config(
+                    master, DigOutSlavePos, Beckhoff_EL2032))) {
+        fprintf(stderr, "Failed to get slave configuration.\n");
+        return -1;
+    }
+
+    if (ecrt_slave_config_pdos(sc, EC_END, el2004_syncs)) {
+        fprintf(stderr, "Failed to configure PDOs.\n");
         return -1;
     }
 
@@ -356,4 +398,3 @@ int main(int argc, char **argv)
 }
 
 /****************************************************************************/
-

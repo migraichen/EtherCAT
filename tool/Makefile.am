@@ -50,8 +50,8 @@ ethercat_SOURCES = \
 	CommandFoeRead.cpp \
 	CommandFoeWrite.cpp \
 	CommandGraph.cpp \
-	CommandIp.cpp \
 	CommandMaster.cpp \
+	CommandPcap.cpp \
 	CommandPdos.cpp \
 	CommandRegRead.cpp \
 	CommandRegWrite.cpp \
@@ -77,16 +77,6 @@ ethercat_SOURCES = \
 	main.cpp \
 	sii_crc.cpp
 
-if ENABLE_EOE
-ethercat_SOURCES += CommandEoe.cpp \
-	CommandEoeAddIf.cpp \
-	CommandEoeDelIf.cpp
-else
-EXTRA_DIST += CommandEoe.cpp \
-	CommandEoeAddIf.cpp \
-	CommandEoeDelIf.cpp
-endif
-
 noinst_HEADERS = \
 	Command.h \
 	CommandAlias.h \
@@ -101,8 +91,8 @@ noinst_HEADERS = \
 	CommandFoeRead.h \
 	CommandFoeWrite.h \
 	CommandGraph.h \
-	CommandIp.h \
 	CommandMaster.h \
+	CommandPcap.h \
 	CommandPdos.h \
 	CommandRegRead.h \
 	CommandRegWrite.h \
@@ -128,13 +118,26 @@ noinst_HEADERS = \
 	sii_crc.h
 
 if ENABLE_EOE
-noinst_HEADERS += CommandEoe.h \
+ethercat_SOURCES += \
+	CommandEoe.cpp \
+	CommandEoeAddIf.cpp \
+	CommandEoeDelIf.cpp \
+	CommandIp.cpp
+noinst_HEADERS += \
+	CommandEoe.h \
 	CommandEoeAddIf.h \
-	CommandEoeDelIf.h
+	CommandEoeDelIf.h \
+	CommandIp.h
 else
-EXTRA_DIST += CommandEoe.h \
+EXTRA_DIST += \
+	CommandEoe.cpp \
+	CommandEoeAddIf.cpp \
+	CommandEoeDelIf.cpp \
+	CommandIp.cpp \
+	CommandEoe.h \
 	CommandEoeAddIf.h \
-	CommandEoeDelIf.h
+	CommandEoeDelIf.h \
+	CommandIp.h
 endif
 
 REV = `if test -s $(top_srcdir)/revision; then \

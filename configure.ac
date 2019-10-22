@@ -42,7 +42,6 @@ AC_PREREQ(2.59)
 AC_INIT([ethercat],[1.5.2],[fp@igh-essen.com])
 AC_CONFIG_AUX_DIR([autoconf])
 AM_INIT_AUTOMAKE([-Wall -Werror dist-bzip2 subdir-objects])
-AC_PREFIX_DEFAULT([/opt/etherlab])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_SRCDIR([config.h.in])
 AC_CONFIG_MACRO_DIR([m4])
@@ -590,6 +589,61 @@ fi
 AC_SUBST(KERNEL_R8169,[$kernel_r8169])
 
 #------------------------------------------------------------------------------
+# r8152 driver
+#------------------------------------------------------------------------------
+
+AC_ARG_ENABLE([r8152],
+    AS_HELP_STRING([--enable-r8152],
+                   [Enable r8152 driver]),
+    [
+        case "${enableval}" in
+            yes) enable_r8152=1
+                ;;
+            no) enable_r8152=0
+                ;;
+            *) AC_MSG_ERROR([Invalid value for --enable-r8152])
+                ;;
+        esac
+    ],
+    [enable_r8152=0] # disabled by default
+)
+
+AM_CONDITIONAL(ENABLE_R8152, test "x$enable_r8152" = "x1")
+AC_SUBST(ENABLE_R8152,[$enable_r8152])
+
+AC_ARG_WITH([r8152-kernel],
+    AC_HELP_STRING(
+        [--with-r8152-kernel=<X.Y.Z>],
+        [r8152 kernel (only if differing)]
+    ),
+    [
+        kernel_r8152=[$withval]
+    ],
+    [
+        kernel_r8152=$linuxversion
+    ]
+)
+
+if test "x${enable_r8152}" = "x1"; then
+    AC_MSG_CHECKING([for kernel for r8152 driver])
+
+    kernels=`ls -1 ${srcdir}/devices/ | grep -oE "^r8152-.*-" | cut -d "-" -f 2 | uniq`
+    found=0
+    for k in $kernels; do
+        if test "$kernel_r8152" = "$k"; then
+            found=1
+        fi
+    done
+    if test $found -ne 1; then
+        AC_MSG_ERROR([kernel $kernel_r8152 not available for r8152 driver!])
+    fi
+
+    AC_MSG_RESULT([$kernel_r8152])
+fi
+
+AC_SUBST(KERNEL_R8152,[$kernel_r8152])
+
+#------------------------------------------------------------------------------
 # CCAT driver
 #------------------------------------------------------------------------------
 
@@ -689,18 +743,37 @@ else
     fi
     AC_MSG_RESULT([$xenomaidir])
 
-    xeno_native_cflags=`$xenomaidir/bin/xeno-config --skin native --cflags`
-    xeno_native_ldflags=`$xenomaidir/bin/xeno-config --skin native --ldflags`
+    xenomai_ver=`grep -R "VERSION_STRING" ${xenomaidir}/include/xeno_config.h | awk '{print $3}'`
+    xenomai_ver=${xenomai_ver##\"}
+    xenomai_ver=${xenomai_ver%%\"}
+    echo "xenomai version: " $xenomai_ver
+
+    if test ${xenomai_ver%%.*} -gt 2; then
+        xeno_alchemy_cflags=`$xenomaidir/bin/xeno-config --skin alchemy --cflags`
+        xeno_alchemy_ldflags=`$xenomaidir/bin/xeno-config --skin alchemy --auto-init-solib --ldflags`
+        xeno_posix_ldflags=`$xenomaidir/bin/xeno-config --skin posix --auto-init-solib --ldflags`
+        xeno_rtdm_ldflags=`$xenomaidir/bin/xeno-config --skin rtdm --auto-init-solib --ldflags`
+        xeno_v3=1
+        xeno=0
+    else
+        xeno_native_cflags=`$xenomaidir/bin/xeno-config --skin native --cflags`
+        xeno_native_ldflags=`$xenomaidir/bin/xeno-config --skin native --ldflags`
+        xeno_posix_ldflags=`$xenomaidir/bin/xeno-config --skin posix --ldflags`
+        xeno_rtdm_ldflags=`$xenomaidir/bin/xeno-config --skin rtdm --ldflags`
+    fi
+
     xeno_posix_cflags=`$xenomaidir/bin/xeno-config --skin posix --cflags`
-    xeno_posix_ldflags=`$xenomaidir/bin/xeno-config --skin posix --ldflags`
     xeno_rtdm_cflags=`$xenomaidir/bin/xeno-config --skin rtdm --cflags`
-    xeno_rtdm_ldflags=`$xenomaidir/bin/xeno-config --skin rtdm --ldflags`
 fi
 
 AC_SUBST(XENOMAI_DIR,[$xenomaidir])
 AM_CONDITIONAL(ENABLE_XENOMAI, test "x$xeno" = "x1")
 AC_SUBST(ENABLE_XENOMAI,[$xeno])
+AM_CONDITIONAL(ENABLE_XENOMAI_V3, test "x$xeno_v3" = "x1")
+AC_SUBST(ENABLE_XENOMAI_V3,[$xeno_v3])
 
+AC_SUBST(XENOMAI_ALCHEMY_CFLAGS,[$xeno_alchemy_cflags])
+AC_SUBST(XENOMAI_ALCHEMY_LDFLAGS,[$xeno_alchemy_ldflags])
 AC_SUBST(XENOMAI_NATIVE_CFLAGS,[$xeno_native_cflags])
 AC_SUBST(XENOMAI_NATIVE_LDFLAGS,[$xeno_native_ldflags])
 AC_SUBST(XENOMAI_POSIX_CFLAGS,[$xeno_posix_cflags])
@@ -1011,6 +1084,36 @@ fi
 AM_CONDITIONAL(BUILD_TOOL, test "x$tool" = "x1")
 
 #------------------------------------------------------------------------------
+# mailbox gateway server
+#-----------------------------------------------------------------------------
+
+AC_MSG_CHECKING([whether to build the mailbox gateway server])
+
+AC_ARG_ENABLE([mbg],
+    AS_HELP_STRING([--enable-mbg],
+                   [Build mailbox gateway server (default: yes)]),
+    [
+        case "${enableval}" in
+            yes) mbg=1
+                ;;
+            no) mbg=0
+                ;;
+            *) AC_MSG_ERROR([Invalid value for --enable-mbg])
+                ;;
+        esac
+    ],
+    [mbg=1]
+)
+
+if test "x${mbg}" = "x1"; then
+    AC_MSG_RESULT([yes])
+else
+    AC_MSG_RESULT([no])
+fi
+
+AM_CONDITIONAL(BUILD_MBG, test "x$mbg" = "x1")
+
+#------------------------------------------------------------------------------
 # Userspace library generation
 #------------------------------------------------------------------------------
 
@@ -1141,7 +1244,7 @@ AC_MSG_CHECKING([whether to assign the SII to PDI])
 
 AC_ARG_ENABLE([sii-assign],
     AS_HELP_STRING([--enable-sii-assign],
-                   [Enable SII assignment to PDI (default: no)]),
+                   [Enable SII assignment to PDI (default: yes)]),
     [
         case "${enableval}" in
             yes) siiassign=1
@@ -1152,7 +1255,7 @@ AC_ARG_ENABLE([sii-assign],
                 ;;
         esac
     ],
-    [siiassign=0]
+    [siiassign=1]
 )
 
 if test "x${siiassign}" = "x1"; then
@@ -1368,6 +1471,7 @@ AC_CONFIG_FILES([
         script/init.d/ethercat
         script/sysconfig/Makefile
         tool/Makefile
+        mailbox_gateway/Makefile
         tty/Kbuild
         tty/Makefile
 ])

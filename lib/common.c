@@ -87,8 +87,10 @@ ec_master_t *ecrt_open_master(unsigned int master_index)
     master->first_config = NULL;
 
     snprintf(path, MAX_PATH_LEN - 1,
-#ifdef USE_RTDM
+#if defined(USE_RTDM)
             "EtherCAT%u",
+#elif defined(USE_RTDM_XENOMAI_V3)
+            "/dev/rtdm/EtherCAT%u",
 #else
             "/dev/EtherCAT%u",
 #endif
@@ -134,6 +136,36 @@ void ecrt_release_master(ec_master_t *master)
 {
     ec_master_clear(master);
     free(master);
+}
+
+/*****************************************************************************/
+
+float ecrt_read_real(const void *data)
+{
+    uint32_t raw = EC_READ_U32(data);
+    return *(float *) (const void *) &raw;
+}
+
+/*****************************************************************************/
+
+double ecrt_read_lreal(const void *data)
+{
+    uint64_t raw = EC_READ_U64(data);
+    return *(double *) (const void *) &raw;
+}
+
+/*****************************************************************************/
+
+void ecrt_write_real(void *data, float value)
+{
+    *(uint32_t *) data = cpu_to_le32(*(uint32_t *) (void *) &value);
+}
+
+/*****************************************************************************/
+
+void ecrt_write_lreal(void *data, double value)
+{
+    *(uint64_t *) data = cpu_to_le64(*(uint64_t *) (void *) &value);
 }
 
 /*****************************************************************************/

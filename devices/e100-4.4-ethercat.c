@@ -936,11 +936,12 @@ static int e100_exec_cb(struct nic *nic, struct sk_buff *skb,
 	int (*cb_prepare)(struct nic *, struct cb *, struct sk_buff *))
 {
 	struct cb *cb;
-	unsigned long flags = 0;
+	unsigned long flags;
 	int err;
 
-	if (!nic->ecdev)
+	if (!nic->ecdev) {
 		spin_lock_irqsave(&nic->cb_lock, flags);
+	}
 
 	if (unlikely(!nic->cbs_avail)) {
 		err = -ENOMEM;
@@ -986,8 +987,9 @@ static int e100_exec_cb(struct nic *nic, struct sk_buff *skb,
 	}
 
 err_unlock:
-	if (!nic->ecdev)
+	if (!nic->ecdev) {
 		spin_unlock_irqrestore(&nic->cb_lock, flags);
+	}
 
 	return err;
 }

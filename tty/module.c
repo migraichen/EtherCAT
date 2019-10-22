@@ -67,7 +67,11 @@ static struct tty_driver *tty_driver = NULL;
 ec_tty_t *ttys[EC_TTY_MAX_DEVICES];
 struct semaphore tty_sem;
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+void ec_tty_wakeup(struct timer_list *timer);
+#else
 void ec_tty_wakeup(unsigned long);
+#endif
 
 /*****************************************************************************/
 
@@ -95,14 +99,6 @@ static struct ktermios ec_tty_std_termios = {
     .c_cc = INIT_C_CC,
 };
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
-typedef struct legacy_timer_emu {
-	struct timer_list t;
-	void (*function)(unsigned long);
-	unsigned long data;
-};
-#endif
-
 struct ec_tty {
     int minor;
     struct device *dev;
@@ -119,11 +115,7 @@ struct ec_tty {
     struct tty_port port;
 #endif
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
-    struct legacy_timer_emu legacy_timer;
-#else
     struct timer_list timer;
-#endif
     struct tty_struct *tty;
     unsigned int open_count;
     struct semaphore sem;
@@ -133,14 +125,6 @@ struct ec_tty {
 };
 
 static const struct tty_operations ec_tty_ops; // see below
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
-static void legacy_timer_emu_func(struct timer_list *t)
-{
-	struct legacy_timer_emu *lt = from_timer(lt, t, t);
-	lt->function(lt->data);
-}
-#endif
 
 /*****************************************************************************/
 
@@ -224,7 +208,7 @@ int ec_tty_init(ec_tty_t *t, int minor,
     t->rx_read_idx = 0;
     t->rx_write_idx = 0;
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
-    timer_setup(&t->legacy_timer.t, legacy_timer_emu_func, 0);
+    timer_setup(&t->timer, ec_tty_wakeup, 0);
 #else
     init_timer(&t->timer);
 #endif    
@@ -270,17 +254,12 @@ int ec_tty_init(ec_tty_t *t, int minor,
         return ret;
     }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
-    t->legacy_timer.function = ec_tty_wakeup;
-    t->legacy_timer.data = (unsigned long) t;
-    t->legacy_timer.t.expires = jiffies + 10;
-    add_timer(&t->legacy_timer.t);
-#else
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
     t->timer.function = ec_tty_wakeup;
     t->timer.data = (unsigned long) t;
+#endif
     t->timer.expires = jiffies + 10;
     add_timer(&t->timer);
-#endif
     return 0;
 }
 
@@ -288,11 +267,7 @@ int ec_tty_init(ec_tty_t *t, int minor,
 
 void ec_tty_clear(ec_tty_t *tty)
 {
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
-    del_timer_sync(&tty->legacy_timer.t);
-#else
     del_timer_sync(&tty->timer);
-#endif
     tty_unregister_device(tty_driver, tty->minor);
 }
 
@@ -361,9 +336,15 @@ int ec_tty_get_serial_info(ec_tty_t *tty, struct serial_struct *data)
 
 /** Timer function.
  */
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0))
+void ec_tty_wakeup(struct timer_list *timer)
+{
+	ec_tty_t *tty = from_timer(tty, timer, timer);
+#else
 void ec_tty_wakeup(unsigned long data)
 {
     ec_tty_t *tty = (ec_tty_t *) data;
+#endif
     size_t to_recv;
 
     /* Wake up any process waiting to send data */
@@ -388,7 +369,7 @@ void ec_tty_wakeup(unsigned long data)
 #endif
 
         if (space < to_recv) {
-            printk(KERN_WARNING PFX "Insufficient space to_recv=%d space=%d\n",
+            printk(KERN_WARNING PFX "Insufficient space to_recv=%ld space=%d\n",
                     to_recv, space);
         }
 
@@ -402,7 +383,7 @@ void ec_tty_wakeup(unsigned long data)
             unsigned int i;
 
 #if EC_TTY_DEBUG >= 1
-            printk(KERN_INFO PFX "Pushing %u bytes to TTY core.\n", to_recv);
+            printk(KERN_INFO PFX "Pushing %zu bytes to TTY core.\n", to_recv);
 #endif
 
             for (i = 0; i < to_recv; i++) {
@@ -418,13 +399,8 @@ void ec_tty_wakeup(unsigned long data)
         }
     }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(4, 15, 0)
-    tty->legacy_timer.t.expires += 1;
-    add_timer(&tty->legacy_timer.t);
-#else
     tty->timer.expires += 1;
     add_timer(&tty->timer);
-#endif
 }
 
 /******************************************************************************
@@ -810,7 +786,7 @@ void ectty_free(ec_tty_t *tty)
 
 unsigned int ectty_tx_data(ec_tty_t *tty, uint8_t *buffer, size_t size)
 {
-    unsigned int data_size = min(ec_tty_tx_size(tty), size), i;
+    unsigned int data_size = min(ec_tty_tx_size(tty), (unsigned int)size), i;
 
     if (data_size)  {
 #if EC_TTY_DEBUG >= 1
@@ -840,13 +816,13 @@ void ectty_rx_data(ec_tty_t *tty, const uint8_t *buffer, size_t size)
         unsigned int i;
 
 #if EC_TTY_DEBUG >= 1
-        printk(KERN_INFO PFX "Received %u bytes.\n", size);
+        printk(KERN_INFO PFX "Received %zu bytes.\n", size);
 #endif
 
-        to_recv = min(ec_tty_rx_space(tty), size);
+        to_recv = min(ec_tty_rx_space(tty), (unsigned int)size);
 
         if (to_recv < size) {
-            printk(KERN_WARNING PFX "Dropping %u bytes.\n", size - to_recv);
+            printk(KERN_WARNING PFX "Dropping %zu bytes.\n", size - to_recv);
         }
 
         for (i = 0; i < size; i++) {

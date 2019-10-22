@@ -289,11 +289,7 @@ void ec_fsm_master_state_broadcast(
         ec_master_slaves_not_available(master);
 #ifdef EC_EOE
         ec_master_eoe_stop(master);
-        if (eoe_autocreate) {
-            ec_master_clear_eoe_handlers(master);
-        } else {
-            ec_master_clear_eoe_handler_slaves(master);
-        }
+        ec_master_clear_eoe_handlers(master, 0);
 #endif
         ec_master_clear_slaves(master);
         ec_master_clear_sii_images(master);
@@ -353,11 +349,7 @@ void ec_fsm_master_state_broadcast(
             ec_master_slaves_not_available(master);
 #ifdef EC_EOE
             ec_master_eoe_stop(master);
-            if (eoe_autocreate) {
-                ec_master_clear_eoe_handlers(master);
-            } else {
-                ec_master_clear_eoe_handler_slaves(master);
-            }
+            ec_master_clear_eoe_handlers(master, 0);
 #endif
             ec_master_clear_slaves(master);
             ec_master_clear_sii_images(master);
@@ -1248,7 +1240,7 @@ void ec_fsm_master_state_dc_read_offset(
         return;
     }
 
-    if (unlikely(!master->has_app_time)) {
+    if (unlikely(!master->dc_ref_time)) {
         EC_MASTER_WARN(master, "No app_time received up to now,"
                     " abort DC time offset calculation.\n");
         // scanning and setting system times complete

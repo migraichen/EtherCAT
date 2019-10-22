@@ -190,8 +190,15 @@ static ATTRIBUTES int ec_ioctl_master(
     ec_lock_up(&master->device_sem);
 
     io.app_time = master->app_time;
+    io.dc_ref_time = master->dc_ref_time;
     io.ref_clock =
         master->dc_ref_clock ? master->dc_ref_clock->ring_position : 0xffff;
+
+    if (master->pcap_data) {
+        io.pcap_size = sizeof(pcap_hdr_t) + pcap_size;
+    } else {
+        io.pcap_size = 0;
+    }
 
     if (copy_to_user((void __user *) arg, &io, sizeof(io))) {
         return -EFAULT;
@@ -670,6 +677,80 @@ static ATTRIBUTES int ec_ioctl_domain_data(
                 domain->data_size)) {
         ec_lock_up(&master->master_sem);
         return -EFAULT;
+    }
+
+    ec_lock_up(&master->master_sem);
+    return 0;
+}
+
+/*****************************************************************************/
+
+/** Get pcap data.
+ *
+ * \return Zero on success, otherwise a negative error code.
+ */
+static ATTRIBUTES int ec_ioctl_pcap_data(
+        ec_master_t *master, /**< EtherCAT master. */
+        void *arg /**< Userspace address to store the results. */
+        )
+{
+    ec_ioctl_pcap_data_t data;
+    pcap_hdr_t pcaphdr;
+    size_t data_size;
+    size_t total_size;
+    void *curr_data;
+
+    if (!master->pcap_data) {
+        return -EOPNOTSUPP;
+    }
+
+    if (copy_from_user(&data, (void __user *) arg, sizeof(data))) {
+        return -EFAULT;
+    }
+
+    if (ec_lock_down_interruptible(&master->master_sem))
+        return -EINTR;
+
+    curr_data = master->pcap_curr_data;
+    data_size = curr_data - master->pcap_data;
+    total_size = sizeof(pcap_hdr_t) + data_size;
+    if (data.data_size < sizeof(pcap_hdr_t)) {
+        ec_lock_up(&master->master_sem);
+        EC_MASTER_ERR(master, "Pcap data size too small %u/%zu!\n",
+                data.data_size, sizeof(pcap_hdr_t));
+        return -EFAULT;
+    }
+    if (data.data_size > total_size) {
+        data.data_size = total_size;
+    }
+    
+    // fill in pcap header and copy to user mem
+    pcaphdr.magic_number = 0xa1b2c3d4;
+    pcaphdr.version_major = 2;
+    pcaphdr.version_minor = 4;
+    pcaphdr.thiszone = 0;
+    pcaphdr.sigfigs = 0;
+    pcaphdr.snaplen = 65535;
+    pcaphdr.network = 1;
+    if (copy_to_user((void __user *) data.target, &pcaphdr,
+                sizeof(pcap_hdr_t))) {
+        ec_lock_up(&master->master_sem);
+        return -EFAULT;
+    }
+    
+    // copy pcap data, up to requested size; also copy updated data_size
+    if ( (data_size > 0) &&
+         (copy_to_user((void __user *) (data.target + sizeof(pcap_hdr_t)),
+                master->pcap_data, data.data_size - sizeof(pcap_hdr_t)) ||
+          copy_to_user((void __user *) arg, &data, sizeof(data)))) {
+        ec_lock_up(&master->master_sem);
+        return -EFAULT;
+    }
+    
+    // remove copied data?
+    // Note: will remove any data that has not been copied
+    if (data.reset_data) {
+        master->pcap_curr_data = master->pcap_data;
     }
 
     ec_lock_up(&master->master_sem);
@@ -1762,7 +1843,7 @@ static ATTRIBUTES int ec_ioctl_eoe_handler(
     EC_MASTER_DBG(master, 1, "  rx_skb:               %p\n", eoe->rx_skb);
     EC_MASTER_DBG(master, 1, "  rx_skb_offset:        %d\n", (int)eoe->rx_skb_offset);
     EC_MASTER_DBG(master, 1, "  rx_skb_size:          %zu\n", eoe->rx_skb_size);
-    EC_MASTER_DBG(master, 1, "  rx_expected_fragment: %u\n", eoe->rx_expected_fragment);
+    EC_MASTER_DBG(master, 1, "  rx_expected_fragment: %hhu\n", eoe->rx_expected_fragment);
     EC_MASTER_DBG(master, 1, "  rx_counter:           %u\n", eoe->rx_counter);
     EC_MASTER_DBG(master, 1, "  rx_rate:              %u\n", eoe->rx_rate);
     EC_MASTER_DBG(master, 1, "  rx_idle:              %u\n", eoe->rx_idle);
@@ -1772,8 +1853,8 @@ static ATTRIBUTES int ec_ioctl_eoe_handler(
     EC_MASTER_DBG(master, 1, "  tx_next_to_clean:     %u\n", eoe->tx_next_to_clean);
     EC_MASTER_DBG(master, 1, "  tx_queue_active:      %u\n", eoe->tx_queue_active);
     EC_MASTER_DBG(master, 1, "  tx_queued_frames:     %u\n", data.tx_queued_frames);
-    EC_MASTER_DBG(master, 1, "  tx_frame_number:      %u\n", eoe->tx_frame_number);
-    EC_MASTER_DBG(master, 1, "  tx_fragment_number:   %u\n", eoe->tx_fragment_number);
+    EC_MASTER_DBG(master, 1, "  tx_frame_number:      %hhu\n", eoe->tx_frame_number);
+    EC_MASTER_DBG(master, 1, "  tx_fragment_number:   %hhu\n", eoe->tx_fragment_number);
     EC_MASTER_DBG(master, 1, "  tx_offset:            %zu\n", eoe->tx_offset);
     EC_MASTER_DBG(master, 1, "  tx_counter:           %u\n", eoe->tx_counter);
     EC_MASTER_DBG(master, 1, "  tx_rate:              %u\n", eoe->tx_rate);
@@ -1792,6 +1873,7 @@ static ATTRIBUTES int ec_ioctl_eoe_handler(
 
 /*****************************************************************************/
 
+#ifdef EC_EOE
 /** Request EoE IP parameter setting.
  *
  * \return Zero on success, otherwise a negative error code.
@@ -1872,6 +1954,7 @@ static ATTRIBUTES int ec_ioctl_slave_eoe_ip_param(
 
     return req.state == EC_INT_REQUEST_SUCCESS ? 0 : -EIO;
 }
+#endif
 
 /*****************************************************************************/
 
@@ -2475,16 +2558,16 @@ static ATTRIBUTES int ec_ioctl_app_time(
         ec_ioctl_context_t *ctx /**< Private data structure of file handle. */
         )
 {
-    ec_ioctl_app_time_t data;
+    uint64_t time;
 
     if (unlikely(!ctx->requested))
         return -EPERM;
 
-    if (copy_from_user(&data, (void __user *) arg, sizeof(data))) {
+    if (copy_from_user(&time, (void __user *) arg, sizeof(time))) {
         return -EFAULT;
     }
 
-    ecrt_master_application_time(master, data.app_time);
+    ecrt_master_application_time(master, time);
     return 0;
 }
 
@@ -2505,6 +2588,31 @@ static ATTRIBUTES int ec_ioctl_sync_ref(
     }
 
     ecrt_master_sync_reference_clock(master);
+    return 0;
+}
+
+/*****************************************************************************/
+
+/** Sync the reference clock.
+ *
+ * \return Zero on success, otherwise a negative error code.
+ */
+static ATTRIBUTES int ec_ioctl_sync_ref_to(
+        ec_master_t *master, /**< EtherCAT master. */
+        void *arg, /**< ioctl() argument. */
+        ec_ioctl_context_t *ctx /**< Private data structure of file handle. */
+        )
+{
+    uint64_t time;
+
+    if (unlikely(!ctx->requested))
+        return -EPERM;
+
+    if (copy_from_user(&time, (void __user *) arg, sizeof(time))) {
+        return -EFAULT;
+    }
+
+    ecrt_master_sync_reference_clock_to(master, time);
     return 0;
 }
 
@@ -5214,6 +5322,70 @@ static ATTRIBUTES int ec_ioctl_eoe_delif(
 
 /*****************************************************************************/
 
+/** Process an EtherCAT Mailbox Gateway message.
+ *
+ * \return Zero on success, otherwise a negative error code.
+ */
+static ATTRIBUTES int ec_ioctl_mbox_gateway(
+        ec_master_t *master, /**< EtherCAT master. */
+        void *arg, /**< ioctl() argument. */
+        ec_ioctl_context_t *ctx /**< Private data structure of file handle. */
+        )
+{
+    ec_ioctl_mbox_gateway_t ioctl;
+    u8 *data;
+    int retval;
+
+    if (copy_from_user(&ioctl, (void __user *) arg, sizeof(ioctl))) {
+        return -EFAULT;
+    }
+    
+    // ensure the incoming data will be at least the size of the mailbox header
+    if (ioctl.data_size < EC_MBOX_HEADER_SIZE) {
+        return -EFAULT;
+    }
+
+    // ensure the incoming data fits into the max buffer size
+    if (ioctl.data_size > ioctl.buff_size) {
+        return -EFAULT;
+    }
+
+    data = kmalloc(ioctl.buff_size, GFP_KERNEL);
+    if (!data) {
+        EC_MASTER_ERR(master, "Failed to allocate %zu bytes of"
+                " mailbox gateway data.\n", ioctl.buff_size);
+        return -ENOMEM;
+    }
+    if (copy_from_user(data, (void __user *) ioctl.data, ioctl.data_size)) {
+        kfree(data);
+        return -EFAULT;
+    }
+    
+    // send the mailbox packet
+    retval = ec_master_mbox_gateway(master, data,
+            &ioctl.data_size, ioctl.buff_size);
+    if (retval) {
+        kfree(data);
+        return retval;
+    }
+
+    if (copy_to_user((void __user *) ioctl.data,
+                data, ioctl.data_size)) {
+        kfree(data);
+        return -EFAULT;
+    }
+    kfree(data);
+
+    if (__copy_to_user((void __user *) arg, &ioctl, sizeof(ioctl))) {
+        retval = -EFAULT;
+    }
+
+    EC_MASTER_DBG(master, 1, "Finished Mailbox Gateway request.\n");
+    return retval;
+}
+
+/*****************************************************************************/
+
 /** ioctl() function to use.
  */
 #ifdef EC_IOCTL_RTDM
@@ -5266,6 +5438,9 @@ long EC_IOCTL(
             break;
         case EC_IOCTL_DOMAIN_DATA:
             ret = ec_ioctl_domain_data(master, arg);
+            break;
+        case EC_IOCTL_PCAP_DATA:
+            ret = ec_ioctl_pcap_data(master, arg);
             break;
         case EC_IOCTL_MASTER_DEBUG:
             if (!ctx->writable) {
@@ -5351,6 +5526,7 @@ long EC_IOCTL(
         case EC_IOCTL_SLAVE_SOE_READ:
             ret = ec_ioctl_slave_soe_read(master, arg);
             break;
+#ifdef EC_EOE
         case EC_IOCTL_SLAVE_EOE_IP_PARAM:
             if (!ctx->writable) {
                 ret = -EPERM;
@@ -5358,6 +5534,7 @@ long EC_IOCTL(
             }
             ret = ec_ioctl_slave_eoe_ip_param(master, arg);
             break;
+#endif
         case EC_IOCTL_SLAVE_SOE_WRITE:
             if (!ctx->writable) {
                 ret = -EPERM;
@@ -5491,6 +5668,13 @@ long EC_IOCTL(
                 break;
             }
             ret = ec_ioctl_sync_ref(master, arg, ctx);
+            break;
+        case EC_IOCTL_SYNC_REF_TO:
+            if (!ctx->writable) {
+                ret = -EPERM;
+                break;
+            }
+            ret = ec_ioctl_sync_ref_to(master, arg, ctx);
             break;
         case EC_IOCTL_SYNC_SLAVES:
             if (!ctx->writable) {
@@ -5879,6 +6063,13 @@ long EC_IOCTL(
             ret = ec_ioctl_eoe_delif(master, arg, ctx);
             break;
 #endif
+        case EC_IOCTL_MBOX_GATEWAY:
+            if (!ctx->writable) {
+                ret = -EPERM;
+                break;
+            }
+            ret = ec_ioctl_mbox_gateway(master, arg, ctx);
+            break;
         default:
             ret = -ENOTTY;
             break;

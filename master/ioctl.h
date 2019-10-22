@@ -56,7 +56,7 @@
  *
  * Increment this when changing the ioctl interface!
  */
-#define EC_IOCTL_VERSION_MAGIC 35
+#define EC_IOCTL_VERSION_MAGIC 36
 
 // Command-line tool
 #define EC_IOCTL_MODULE                EC_IOR(0x00, ec_ioctl_module_t)
@@ -83,7 +83,9 @@
 #define EC_IOCTL_SLAVE_FOE_WRITE       EC_IOW(0x15, ec_ioctl_slave_foe_t)
 #define EC_IOCTL_SLAVE_SOE_READ       EC_IOWR(0x16, ec_ioctl_slave_soe_read_t)
 #define EC_IOCTL_SLAVE_SOE_WRITE      EC_IOWR(0x17, ec_ioctl_slave_soe_write_t)
+#ifdef EC_EOE
 #define EC_IOCTL_SLAVE_EOE_IP_PARAM    EC_IOW(0x18, ec_ioctl_slave_eoe_ip_t)
+#endif
 #define EC_IOCTL_CONFIG               EC_IOWR(0x19, ec_ioctl_config_t)
 #define EC_IOCTL_CONFIG_PDO           EC_IOWR(0x1a, ec_ioctl_config_pdo_t)
 #define EC_IOCTL_CONFIG_PDO_ENTRY     EC_IOWR(0x1b, ec_ioctl_config_pdo_entry_t)
@@ -92,21 +94,22 @@
 #ifdef EC_EOE
 #define EC_IOCTL_EOE_HANDLER          EC_IOWR(0x1e, ec_ioctl_eoe_handler_t)
 #endif
-#define EC_IOCTL_SLAVE_DICT_UPLOAD    EC_IOW(0x1f, ec_ioctl_slave_dict_upload_t)
+#define EC_IOCTL_SLAVE_DICT_UPLOAD    EC_IOW(0x7f, ec_ioctl_slave_dict_upload_t)
 
 // Application interface
-#define EC_IOCTL_REQUEST                EC_IO(0x20)
-#define EC_IOCTL_CREATE_DOMAIN          EC_IO(0x21)
-#define EC_IOCTL_CREATE_SLAVE_CONFIG  EC_IOWR(0x22, ec_ioctl_config_t)
-#define EC_IOCTL_SELECT_REF_CLOCK      EC_IOW(0x23, uint32_t)
-#define EC_IOCTL_ACTIVATE              EC_IOR(0x24, ec_ioctl_master_activate_t)
-#define EC_IOCTL_DEACTIVATE             EC_IO(0x25)
-#define EC_IOCTL_SEND                   EC_IO(0x26)
-#define EC_IOCTL_RECEIVE                EC_IO(0x27)
-#define EC_IOCTL_MASTER_STATE          EC_IOR(0x28, ec_master_state_t)
-#define EC_IOCTL_MASTER_LINK_STATE    EC_IOWR(0x29, ec_ioctl_link_state_t)
-#define EC_IOCTL_APP_TIME              EC_IOW(0x2a, ec_ioctl_app_time_t)
-#define EC_IOCTL_SYNC_REF               EC_IO(0x2b)
+#define EC_IOCTL_REQUEST                EC_IO(0x1f)
+#define EC_IOCTL_CREATE_DOMAIN          EC_IO(0x20)
+#define EC_IOCTL_CREATE_SLAVE_CONFIG  EC_IOWR(0x21, ec_ioctl_config_t)
+#define EC_IOCTL_SELECT_REF_CLOCK      EC_IOW(0x22, uint32_t)
+#define EC_IOCTL_ACTIVATE              EC_IOR(0x23, ec_ioctl_master_activate_t)
+#define EC_IOCTL_DEACTIVATE             EC_IO(0x24)
+#define EC_IOCTL_SEND                   EC_IO(0x25)
+#define EC_IOCTL_RECEIVE                EC_IO(0x26)
+#define EC_IOCTL_MASTER_STATE          EC_IOR(0x27, ec_master_state_t)
+#define EC_IOCTL_MASTER_LINK_STATE    EC_IOWR(0x28, ec_ioctl_link_state_t)
+#define EC_IOCTL_APP_TIME              EC_IOW(0x29, uint64_t)
+#define EC_IOCTL_SYNC_REF               EC_IO(0x2a)
+#define EC_IOCTL_SYNC_REF_TO           EC_IOW(0x2b, uint64_t)
 #define EC_IOCTL_SYNC_SLAVES            EC_IO(0x2c)
 #define EC_IOCTL_REF_CLOCK_TIME        EC_IOR(0x2d, uint32_t)
 #define EC_IOCTL_SYNC_MON_QUEUE         EC_IO(0x2e)
@@ -183,6 +186,11 @@
 #define EC_IOCTL_EOE_DELIF            EC_IOWR(0x71, ec_ioctl_eoe_if_t)
 #endif
 
+#define EC_IOCTL_PCAP_DATA            EC_IOWR(0x72, ec_ioctl_pcap_data_t)
+
+// Mailbox Gateway
+#define EC_IOCTL_MBOX_GATEWAY         EC_IOWR(0x73, ec_ioctl_mbox_gateway_t)
+
 /*****************************************************************************/
 
 #define EC_IOCTL_STRING_SIZE 64
@@ -231,7 +239,9 @@ typedef struct {
     int32_t rx_byte_rates[EC_RATE_COUNT];
     int32_t loss_rates[EC_RATE_COUNT];
     uint64_t app_time;
+    uint64_t dc_ref_time;
     uint16_t ref_clock;
+    uint32_t pcap_size;
 } ec_ioctl_master_t;
 
 /*****************************************************************************/
@@ -369,6 +379,15 @@ typedef struct {
     uint32_t data_size;
     uint8_t *target;
 } ec_ioctl_domain_data_t;
+
+/*****************************************************************************/
+
+typedef struct {
+    // inputs
+    uint32_t data_size;
+    uint8_t reset_data;
+    uint8_t *target;
+} ec_ioctl_pcap_data_t;
 
 /*****************************************************************************/
 
@@ -650,6 +669,7 @@ typedef struct {
 #endif
 #endif
 
+#ifdef EC_EOE
 typedef struct {
     // input
     uint16_t slave_position;
@@ -672,6 +692,7 @@ typedef struct {
 	uint16_t result;
 } ec_ioctl_slave_eoe_ip_t;
 
+#endif
 /*****************************************************************************/
 
 typedef struct {
@@ -856,15 +877,17 @@ typedef struct {
 
 typedef struct {
     // inputs
-    uint64_t app_time;
-} ec_ioctl_app_time_t;
+    uint16_t slave_position;
+} ec_ioctl_slave_dict_upload_t;
 
 /*****************************************************************************/
 
 typedef struct {
-    // inputs
-    uint16_t slave_position;
-} ec_ioctl_slave_dict_upload_t;
+    // input / output
+    size_t data_size;
+    size_t buff_size;
+    uint8_t *data;
+} ec_ioctl_mbox_gateway_t;
 
 /*****************************************************************************/
 

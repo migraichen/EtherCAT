@@ -53,7 +53,27 @@ noinst_HEADERS = \
 	voe_handler.h
 
 libethercat_la_CFLAGS = -fno-strict-aliasing -Wall -I$(top_srcdir)
-libethercat_la_LDFLAGS = -version-info 1:0:0
+
+#
+# http://www.gnu.org/software/libtool/manual/html_node/ ...
+# Updating-version-info.html
+#
+# - If the library source code has changed at all since the last update, then
+#   increment revision (‘c:r:a’ becomes ‘c:r+1:a’).
+# - If any interfaces have been added, removed, or changed since the last
+#   update, increment current, and set revision to 0.
+# - If any interfaces have been added since the last public release, then
+#   increment age.
+# - If any interfaces have been removed or changed since the last public
+#   release, then set age to 0.
+#
+# History
+#
+# 1:0.0
+# 	ecrt_master_sync_reference_clock_to() added.
+# 2:0:1
+#
+libethercat_la_LDFLAGS = -version-info 2:0:1
 
 #------------------------------------------------------------------------------
 
@@ -62,12 +82,20 @@ if ENABLE_RTDM
 lib_LTLIBRARIES += libethercat_rtdm.la
 
 libethercat_rtdm_la_SOURCES = $(libethercat_la_SOURCES)
-libethercat_rtdm_la_CFLAGS = $(libethercat_la_CFLAGS) -DUSE_RTDM
+libethercat_rtdm_la_CFLAGS = $(libethercat_la_CFLAGS)
 libethercat_rtdm_la_LDFLAGS = $(libethercat_la_LDFLAGS)
 
 if ENABLE_XENOMAI
 libethercat_rtdm_la_CFLAGS += $(XENOMAI_RTDM_CFLAGS)
 libethercat_rtdm_la_LDFLAGS += $(XENOMAI_RTDM_LDFLAGS)
+endif
+
+if ENABLE_XENOMAI_V3
+libethercat_rtdm_la_CFLAGS += $(XENOMAI_RTDM_CFLAGS)
+libethercat_rtdm_la_LDFLAGS += $(XENOMAI_RTDM_LDFLAGS)
+libethercat_rtdm_la_CFLAGS += -DUSE_RTDM_XENOMAI_V3
+else
+libethercat_rtdm_la_CFLAGS += -DUSE_RTDM
 endif
 
 if ENABLE_RTAI

@@ -49,6 +49,8 @@
 
 #ifdef EC_USE_RTMUTEX
 
+#include <linux/rtmutex.h>
+
 typedef struct rt_mutex ec_lock_t;
 
 static inline void ec_lock_init(ec_lock_t *sem) { rt_mutex_init(sem); }

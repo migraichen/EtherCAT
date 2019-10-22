@@ -765,7 +765,7 @@ struct rtl8169_tc_offsets {
 };
 
 enum rtl_flag {
-	RTL_FLAG_TASK_ENABLED,
+	RTL_FLAG_TASK_ENABLED = 0,
 	RTL_FLAG_TASK_SLOW_PENDING,
 	RTL_FLAG_TASK_RESET_PENDING,
 	RTL_FLAG_TASK_PHY_PENDING,
@@ -1396,7 +1396,7 @@ DECLARE_RTL_COND(rtl_ocp_tx_cond)
 {
 	void __iomem *ioaddr = tp->mmio_addr;
 
-	return RTL_R8(IBISR0) & 0x02;
+	return RTL_R8(IBISR0) & 0x20;
 }
 
 static void rtl8168ep_stop_cmac(struct rtl8169_private *tp)
@@ -1404,7 +1404,7 @@ static void rtl8168ep_stop_cmac(struct rtl8169_private *tp)
 	void __iomem *ioaddr = tp->mmio_addr;
 
 	RTL_W8(IBCR2, RTL_R8(IBCR2) & ~0x01);
-	rtl_msleep_loop_wait_low(tp, &rtl_ocp_tx_cond, 50, 2000);
+	rtl_msleep_loop_wait_high(tp, &rtl_ocp_tx_cond, 50, 2000);
 	RTL_W8(IBISR0, RTL_R8(IBISR0) | 0x20);
 	RTL_W8(IBCR0, RTL_R8(IBCR0) & ~0x01);
 }
@@ -2221,19 +2221,14 @@ static bool rtl8169_do_counters(struct net_device *dev, u32 counter_cmd)
 	void __iomem *ioaddr = tp->mmio_addr;
 	dma_addr_t paddr = tp->counters_phys_addr;
 	u32 cmd;
-	bool ret;
 
 	RTL_W32(CounterAddrHigh, (u64)paddr >> 32);
+	RTL_R32(CounterAddrHigh);
 	cmd = (u64)paddr & DMA_BIT_MASK(32);
 	RTL_W32(CounterAddrLow, cmd);
 	RTL_W32(CounterAddrLow, cmd | counter_cmd);
 
-	ret = rtl_udelay_loop_wait_low(tp, &rtl_counters_cond, 10, 1000);
-
-	RTL_W32(CounterAddrLow, 0);
-	RTL_W32(CounterAddrHigh, 0);
-
-	return ret;
+	return rtl_udelay_loop_wait_low(tp, &rtl_counters_cond, 10, 1000);
 }
 
 static bool rtl8169_reset_counters(struct net_device *dev)
@@ -4853,6 +4848,9 @@ static void rtl_pll_power_down(struct rtl8169_private *tp)
 static void rtl_pll_power_up(struct rtl8169_private *tp)
 {
 	rtl_generic_op(tp, tp->pll_power_ops.up);
+
+	/* give MAC/PHY some time to resume */
+	msleep(20);
 }
 
 static void rtl_init_pll_power_ops(struct rtl8169_private *tp)
@@ -6977,8 +6975,7 @@ static void r8169_csum_workaround(struct rtl8169_private *tp,
 			rtl8169_start_xmit(nskb, tp->dev);
 		} while (segs);
 
-		if (!tp->ecdev)
-			dev_consume_skb_any(skb);
+		dev_consume_skb_any(skb);
 	} else if (skb->ip_summed == CHECKSUM_PARTIAL) {
 		if (skb_checksum_help(skb) < 0)
 			goto drop;
@@ -6990,8 +6987,7 @@ static void r8169_csum_workaround(struct rtl8169_private *tp,
 drop:
 		stats = &tp->dev->stats;
 		stats->tx_dropped++;
-		if (!tp->ecdev)
-			dev_kfree_skb_any(skb);
+		dev_kfree_skb_any(skb);
 	}
 }
 
@@ -7225,14 +7221,16 @@ static netdev_tx_t rtl8169_start_xmit(struct sk_buff *skb,
 err_dma_1:
 	rtl8169_unmap_tx_skb(d, tp->tx_skb + entry, txd);
 err_dma_0:
-	if (!tp->ecdev)
+	if (!tp->ecdev) {
 		dev_kfree_skb_any(skb);
+	}
 	dev->stats.tx_dropped++;
 	return NETDEV_TX_OK;
 
 err_stop_0:
-	if (!tp->ecdev)
+	if (!tp->ecdev) {
 		netif_stop_queue(dev);
+	}
 	dev->stats.tx_dropped++;
 	return NETDEV_TX_BUSY;
 }
@@ -7464,7 +7462,8 @@ process_pkt:
 				// No need to detect link status as
 				// long as frames are received: Reset watchdog.
 				tp->ec_watchdog_jiffies = jiffies;
-			} else {
+			}
+			else {
 				skb = rtl8169_try_rx_copy(tp->Rx_databuff[entry],
 							  tp, pkt_size, addr);
 				if (!skb) {
@@ -7696,7 +7695,8 @@ static int rtl8169_close(struct net_device *dev)
 	rtl8169_update_counters(dev);
 
 	rtl_lock_work(tp);
-	clear_bit(RTL_FLAG_TASK_ENABLED, tp->wk.flags);
+	/* Clear all task flags */
+	bitmap_zero(tp->wk.flags, RTL_FLAG_MAX);
 
 	rtl8169_down(dev);
 	rtl_unlock_work(tp);
@@ -7881,7 +7881,9 @@ static void rtl8169_net_suspend(struct net_device *dev)
 
 	rtl_lock_work(tp);
 	napi_disable(&tp->napi);
-	clear_bit(RTL_FLAG_TASK_ENABLED, tp->wk.flags);
+	/* Clear all task flags */
+	bitmap_zero(tp->wk.flags, RTL_FLAG_MAX);
+
 	rtl_unlock_work(tp);
 
 	rtl_pll_power_down(tp);
@@ -8522,7 +8524,8 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		goto err_out_msi_4;
 	}
 
-	// offer device to EtherCAT master module
+	pci_set_drvdata(pdev, dev);
+
 	tp->ecdev = ecdev_offer(dev, ec_poll, THIS_MODULE);
 	tp->ec_watchdog_jiffies = jiffies;
 
@@ -8531,8 +8534,6 @@ static int rtl_init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		if (rc < 0)
 			goto err_out_cnt_5;
 	}
-
-	pci_set_drvdata(pdev, dev);
 
 	netif_info(tp, probe, dev, "%s at 0x%p, %pM, XID %08x IRQ %d\n",
 		   rtl_chip_infos[chipset].name, ioaddr, dev->dev_addr,
